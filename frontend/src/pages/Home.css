@@ -1,0 +1,126 @@
+.home__header {
+  margin-bottom: var(--space-6);
+}
+
+.home__title {
+  font-size: var(--text-3xl);
+}
+
+.home__name {
+  color: var(--color-accent-strong);
+  font-style: italic;
+}
+
+/* Big "Plan a new trip" card */
+.plan-card {
+  display: grid;
+  gap: var(--space-5);
+  overflow: hidden;
+  background: var(--gradient-sunset);
+  border: 0;
+  box-shadow: var(--shadow-lg);
+}
+
+.plan-card__title {
+  font-size: var(--text-3xl);
+  color: #fff;
+}
+
+.plan-card__text {
+  color: #fff;
+  max-width: 48ch;
+  margin-bottom: var(--space-5);
+}
+
+.plan-card .btn--accent {
+  background: #fff;
+  color: var(--color-accent-strong);
+}
+
+.plan-card .btn--accent:hover {
+  background: var(--color-bg);
+  color: var(--color-accent-hover);
+}
+
+.plan-card__art svg {
+  width: 100%;
+  max-width: 260px;
+  display: block;
+  margin-left: auto;
+}
+
+@media (max-width: 599px) {
+  .plan-card__art {
+    display: none;
+  }
+}
+
+@media (min-width: 600px) {
+  .plan-card {
+    grid-template-columns: 1.4fr 1fr;
+    align-items: center;
+  }
+}
+
+.home__section {
+  margin-top: var(--space-7);
+}
+
+.home__section-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+
+.home__section-head h2 {
+  margin: 0;
+}
+
+/* Coming soon grid */
+.soon-grid {
+  list-style: none;
+  padding: 0;
+  margin: var(--space-4) 0 0;
+  display: grid;
+  gap: var(--space-4);
+  grid-template-columns: 1fr;
+}
+
+@media (min-width: 560px) {
+  .soon-grid { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (min-width: 960px) {
+  .soon-grid { grid-template-columns: repeat(3, 1fr); }
+}
+
+.soon-card {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.soon-card__icon {
+  display: grid;
+  place-items: center;
+  width: 48px;
+  height: 48px;
+  margin-bottom: var(--space-3);
+  border-radius: var(--radius-md);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}
+
+.soon-card__title {
+  font-size: var(--text-lg);
+  margin-bottom: var(--space-1);
+}
+
+.soon-card__text {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+  flex: 1;
+}

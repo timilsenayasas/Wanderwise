@@ -1,0 +1,2 @@
+# All dependencies live in the repo-root requirements.txt (one source of truth).
+-r ../requirements.txt

@@ -1,0 +1,94 @@
+/*
+ * WanderWise design tokens — "golden hour travel".
+ *
+ * Use these variables instead of hard-coded values so the whole app stays
+ * consistent. Contrast notes are for WCAG 2.1 AA (4.5:1 for normal text).
+ *
+ *   color: var(--color-text);
+ *   padding: var(--space-4);
+ *   border-radius: var(--radius-md);
+ */
+
+:root {
+  color-scheme: light;
+
+  /* ---- Brand colors ---- */
+  --color-primary: #1f3864;        /* deep navy (design doc). White on it: 11.9:1 */
+  --color-primary-hover: #172b4f;
+  --color-primary-soft: #e6ebf4;   /* tinted surfaces, selected states */
+
+  --color-accent: #e8683f;         /* sunset coral — decorative only (icons, lines, blobs) */
+  --color-accent-strong: #b9461f;  /* coral safe for text & white-on-coral buttons: 5.3:1 */
+  --color-accent-hover: #9c3a19;
+  --color-amber: #f29f4b;          /* golden sun — decorative only */
+  --color-amber-soft: #fde7c8;
+
+  --color-success: #0f766e;        /* teal. White on it: 5.5:1 */
+  --color-success-soft: #d5f0ec;
+  --color-error: #b42318;          /* red: ONLY errors + over-budget. On sand: 5.8:1 */
+  --color-error-soft: #fde8e6;
+
+  /* ---- Neutrals ---- */
+  --color-bg: #fbf5ec;             /* soft sand page background */
+  --color-bg-deep: #f4e9d8;        /* darker sand for bands/sections */
+  --color-surface: #ffffff;        /* cards, inputs */
+  --color-text: #1b2233;           /* body text: 14.9:1 on sand */
+  --color-text-muted: #4a5568;     /* secondary text: 7:1 on sand */
+  --color-border: #d9cfbf;         /* decorative borders */
+  --color-border-strong: #8a8172;  /* input borders: 3.3:1 (meets 3:1 for UI components) */
+  --color-focus: #1f3864;
+  --color-on-dark: #fbf5ec;        /* text on navy */
+
+  /* ---- Typography ---- */
+  --font-display: 'Fraunces', 'Iowan Old Style', 'Palatino Linotype', Georgia, serif;
+  --font-body: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --text-xs: 0.8125rem;   /* 13px */
+  --text-sm: 0.875rem;    /* 14px */
+  --text-base: 1rem;      /* 16px */
+  --text-lg: 1.125rem;    /* 18px */
+  --text-xl: 1.375rem;    /* 22px */
+  --text-2xl: 1.75rem;    /* 28px */
+  --text-3xl: clamp(2rem, 5vw, 2.75rem);
+  --text-hero: clamp(2.5rem, 7vw, 4.5rem);
+
+  --leading-tight: 1.15;
+  --leading-normal: 1.55;
+
+  /* ---- Spacing (4px scale) ---- */
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 0.75rem;
+  --space-4: 1rem;
+  --space-5: 1.5rem;
+  --space-6: 2rem;
+  --space-7: 3rem;
+  --space-8: 4rem;
+  --space-9: 6rem;
+
+  /* ---- Radius ---- */
+  --radius-sm: 6px;
+  --radius-md: 12px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+
+  /* ---- Shadows (warm-tinted) ---- */
+  --shadow-sm: 0 1px 2px rgba(31, 56, 100, 0.08);
+  --shadow-md: 0 6px 18px rgba(31, 56, 100, 0.1), 0 2px 4px rgba(31, 56, 100, 0.06);
+  --shadow-lg: 0 18px 40px rgba(31, 56, 100, 0.16), 0 4px 10px rgba(31, 56, 100, 0.08);
+  --focus-ring: 0 0 0 3px var(--color-bg), 0 0 0 6px var(--color-focus);
+
+  /* ---- Layout ---- */
+  --container-max: 1120px;
+  --navbar-height: 64px;
+
+  /* ---- Motion ---- */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --duration-fast: 150ms;
+  --duration-base: 250ms;
+  --duration-slow: 600ms;
+
+  /* Gradients */
+  /* Safe behind white text (every stop is >= 4.5:1 with #fff). */
+  --gradient-sunset: linear-gradient(135deg, #1f3864 0%, #2e3f73 55%, #9c3a19 100%);
+}

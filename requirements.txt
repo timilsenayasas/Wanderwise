@@ -1,0 +1,28 @@
+# WanderWise backend dependencies (all of them, pinned to tested versions).
+# Install from the repo root:   pip install -r requirements.txt
+# or from backend/:             pip install -r requirements.txt   (points here)
+#
+# When you add a package: pip install <pkg>, then add "<pkg>==<version>" below.
+
+# --- Web framework / server ---
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+
+# --- Database ---
+SQLAlchemy==2.0.54
+# Postgres driver (only used when DATABASE_URL is postgresql://...)
+psycopg[binary]==3.3.6
+
+# --- Validation / settings ---
+pydantic==2.13.5
+pydantic-settings==2.15.0
+email-validator==2.3.0
+
+# --- Security (password hashing + JWT) ---
+pwdlib[argon2]==0.3.1
+argon2-cffi==25.1.0
+PyJWT==2.15.0
+
+# --- Testing ---
+pytest==9.1.1
+httpx==0.28.1

@@ -1,0 +1,31 @@
+.register-success {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2);
+}
+
+.register-success__badge {
+  animation: badge-pop 500ms var(--ease-out) both;
+  margin-bottom: var(--space-3);
+}
+
+.register-success__check {
+  stroke-dasharray: 60;
+  stroke-dashoffset: 60;
+  animation: check-draw 450ms 300ms var(--ease-out) forwards;
+}
+
+.register-success__text {
+  font-size: var(--text-lg);
+}
+
+@keyframes badge-pop {
+  0% { transform: scale(0.4); opacity: 0; }
+  70% { transform: scale(1.08); opacity: 1; }
+  100% { transform: scale(1); }
+}
+
+@keyframes check-draw {
+  to { stroke-dashoffset: 0; }
+}

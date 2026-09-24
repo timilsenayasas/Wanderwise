@@ -1,0 +1,32 @@
+.spinner {
+  display: inline-block;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2.5px solid currentColor;
+  border-right-color: transparent;
+  animation: spinner-rotate 0.7s linear infinite;
+  vertical-align: middle;
+}
+
+.spinner--sm { width: 1rem; height: 1rem; border-width: 2px; }
+.spinner--md { width: 1.5rem; height: 1.5rem; }
+.spinner--lg { width: 2.5rem; height: 2.5rem; border-width: 3px; color: var(--color-primary); }
+
+@keyframes spinner-rotate {
+  to { transform: rotate(360deg); }
+}
+
+/* Keep a slow spin for reduced motion so "loading" is still visible. */
+@media (prefers-reduced-motion: reduce) {
+  .spinner {
+    animation: spinner-rotate 1.5s linear infinite !important;
+    animation-duration: 1.5s !important;
+    animation-iteration-count: infinite !important;
+  }
+}
+
+.page-loading {
+  min-height: 60vh;
+  display: grid;
+  place-items: center;
+}
