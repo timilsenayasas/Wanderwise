@@ -1,0 +1,27 @@
+# --- Secrets (copy .env.example -> .env locally) ---
+.env
+.env.*
+!.env.example
+
+# --- Python ---
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# --- Local database (each dev gets their own; created on startup) ---
+*.db
+*.sqlite3
+
+# --- Node / Vite ---
+node_modules/
+dist/
+coverage/
+
+# --- OS / editor junk ---
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.log
