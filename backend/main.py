@@ -64,8 +64,6 @@ class Settings(BaseSettings):
 
 settings = Settings()
 
-gemini_client = genai.Client(api_key=settings.llm_api_key)
-
 # Development-only cache for generated itineraries.
 itinerary_cache: dict[str, "ItineraryResponse"] = {}
 
@@ -222,6 +220,25 @@ class ItineraryResponse(BaseModel):
 
 
 # --- LLM Service ----------------------------------------------------------
+class LLMServiceError(Exception):
+    """Raised when the itinerary service cannot complete a request."""
+
+    def __init__(self, message: str, retry: bool = True):
+        super().__init__(message)
+        self.message = message
+        self.retry = retry
+
+
+def get_gemini_client():
+    """Create the Gemini client only when AI planning is requested."""
+    if not settings.llm_api_key:
+        raise LLMServiceError(
+            "AI planning isn't configured.",
+            retry=False,
+        )
+
+    return genai.Client(api_key=settings.llm_api_key)
+
 def build_itinerary_prompt(trip: TripPlanRequest) -> str:
     """Build the prompt used to generate a structured trip itinerary."""
 
@@ -285,14 +302,6 @@ Use exactly this JSON structure:
 }}
 """.strip()
 
-class LLMServiceError(Exception):
-    """Raised when the itinerary service cannot complete a request."""
-
-    def __init__(self, message: str, retry: bool = True):
-        super().__init__(message)
-        self.message = message
-        self.retry = retry
-
 def build_cache_key(trip: TripPlanRequest) -> str:
     """Create a consistent cache key from the trip request."""
 
@@ -311,10 +320,12 @@ def generate_itinerary(trip: TripPlanRequest) -> ItineraryResponse:
 
     prompt = build_itinerary_prompt(trip)
 
+    client = get_gemini_client()
+    
     start_time = time.perf_counter()
 
     try:
-        response = gemini_client.models.generate_content(
+        response = client.models.generate_content(
             model="gemini-3.5-flash-lite",
             contents=prompt,
             config={
@@ -529,3 +540,18 @@ def logout() -> Response:
 @app.get("/api/auth/me", response_model=UserOut)
 def me(user: CurrentUser) -> User:
     return user
+
+@app.post("/api/trips/plan", response_model=ItineraryResponse)
+def plan_trip(body: TripPlanRequest, user: CurrentUser) -> ItineraryResponse:
+    """Generate an AI itinerary for the logged-in user."""
+    try:
+        return generate_itinerary(body)
+    except LLMServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": exc.message,
+                "retry": exc.retry,
+            },
+        ) from exc
+        
