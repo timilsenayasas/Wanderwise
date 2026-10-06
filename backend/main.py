@@ -554,4 +554,4 @@ def plan_trip(body: TripPlanRequest, user: CurrentUser) -> ItineraryResponse:
                 "retry": exc.retry,
             },
         ) from exc
-        
+
