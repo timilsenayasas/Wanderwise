@@ -573,9 +573,11 @@ def get_preferences(user: CurrentUser, db: DbSession) -> PreferenceOut:
     )
 
     if preference is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Preferences not found",
+        return PreferenceOut(
+            home_city=None,
+            interests=None,
+            default_budget=None,
+            travel_style=None,
         )
 
     return preference
