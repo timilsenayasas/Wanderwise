@@ -211,6 +211,12 @@ class TripIn(BaseModel):
     @field_validator("end_date")
     @classmethod
     def end_date_on_or_after_start_date(cls, end_date: date, info):
+        start_date = info.data.get("start_date")
+        if start_date and end_date < start_date:
+            raise ValueError("End date must be on or after start date")
+        return end_date
+
+
 class TripPlanRequest(BaseModel):
     """Trip constraints sent to the LLM itinerary generator."""
 
@@ -245,6 +251,7 @@ class TripOut(BaseModel):
     interests: list[str]
     created_at: datetime
 
+
 def trip_to_out(trip: Trip) -> TripOut:
     """Convert a database Trip into the public API response format."""
     interests = trip.interests.split(",") if trip.interests else []
@@ -260,6 +267,7 @@ def trip_to_out(trip: Trip) -> TripOut:
         interests=interests,
         created_at=trip.created_at,
     )
+
 
 class ItineraryActivity(BaseModel):
     start_time: str

@@ -165,6 +165,16 @@ def test_password_is_hashed_with_argon2id(client):
     assert user.password_hash != VALID_USER["password"]
 
 VALID_TRIP = {
+    "origin": "Dallas, TX",
+    "destination": "Chicago, IL",
+    "start_date": "2026-10-10",
+    "end_date": "2026-10-12",
+    "travelers": 2,
+    "budget": 1200,
+    "interests": ["food", "museums"],
+}
+
+
 VALID_TRIP_PLAN = {
     "origin": "Dallas, TX",
     "destination": "Chicago, IL",
