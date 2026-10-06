@@ -22,7 +22,7 @@ from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import DateTime, Integer, String, create_engine, select
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, create_engine, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -134,7 +134,17 @@ class User(Base):
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
 
+class Preference(Base):
+    __tablename__ = "preferences"
 
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), unique=True, nullable=False, index=True
+    )
+    home_city: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    interests: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    default_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    travel_style: Mapped[str] = mapped_column(String(100), default="", nullable=False)
 # TODO(teammates): add the remaining tables here as their features land:
 #   preferences  (F1 profile: interests, home city, budget defaults)  -> FK users.id
 #   trips        (F2/F3/F12: origin, destination, dates, travelers, budget) -> FK users.id
@@ -173,6 +183,21 @@ class UserOut(BaseModel):
     id: int
     email: str
     name: str
+class PreferenceIn(BaseModel):
+    home_city: str = ""
+    interests: str = ""
+    default_budget: float | None = None
+    travel_style: str = ""
+
+class PreferenceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    home_city: str
+    interests: str
+    default_budget: float | None
+    travel_style: str
 
 class TripPlanRequest(BaseModel):
     """Trip constraints sent to the LLM itinerary generator."""
@@ -541,6 +566,45 @@ def logout() -> Response:
 def me(user: CurrentUser) -> User:
     return user
 
+@app.get("/api/me/preferences", response_model=PreferenceOut)
+def get_preferences(user: CurrentUser, db: DbSession) -> PreferenceOut:
+    preference = db.scalar(
+        select(Preference).where(Preference.user_id == user.id)
+    )
+
+    if preference is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Preferences not found",
+        )
+
+    return preference
+
+
+@app.put("/api/me/preferences", response_model=PreferenceOut)
+def update_preferences(
+    body: PreferenceIn,
+    user: CurrentUser,
+    db: DbSession,
+) -> PreferenceOut:
+    preference = db.scalar(
+        select(Preference).where(Preference.user_id == user.id)
+    )
+
+    if preference is None:
+        preference = Preference(user_id=user.id)
+        db.add(preference)
+
+    preference.home_city = body.home_city
+    preference.interests = body.interests
+    preference.default_budget = body.default_budget
+    preference.travel_style = body.travel_style
+
+    db.commit()
+    db.refresh(preference)
+    return preference
+
+    
 @app.post("/api/trips/plan", response_model=ItineraryResponse)
 def plan_trip(body: TripPlanRequest, user: CurrentUser) -> ItineraryResponse:
     """Generate an AI itinerary for the logged-in user."""
