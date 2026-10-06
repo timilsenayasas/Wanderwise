@@ -1,3 +1,4 @@
+# Environment variables / secrets
 # --- Secrets (copy .env.example -> .env locally) ---
 .env
 .env.*
@@ -10,7 +11,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 
-# --- Local database (each dev gets their own; created on startup) ---
+# --- Local databases ---
 *.db
 *.sqlite3
 
