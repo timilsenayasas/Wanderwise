@@ -574,10 +574,12 @@ def get_preferences(user: CurrentUser, db: DbSession) -> PreferenceOut:
 
     if preference is None:
         return PreferenceOut(
-            home_city=None,
-            interests=None,
+            id=0,
+            user_id=user.id,
+            home_city="",
+            interests="",
             default_budget=None,
-            travel_style=None,
+            travel_style="",
         )
 
     return preference
