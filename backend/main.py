@@ -22,7 +22,7 @@ from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import DateTime, Integer, String, create_engine, select, ForeignKey
+from sqlalchemy import DateTime, Integer, String, Text, Float, create_engine, select, ForeignKey
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -133,6 +133,20 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
+
+class Preference(Base):
+    __tablename__ = "preferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), unique=True, nullable=False, index=True
+    )
+    home_city: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    interests: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    default_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    travel_style: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+
+
 
 class Trip(Base):
     __tablename__ = "trips"
