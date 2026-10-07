@@ -26,6 +26,8 @@ export class ApiError extends Error {
 function messageFromBody(body, status) {
   const detail = body?.detail;
   if (typeof detail === 'string') return detail;
+  // Service errors, e.g. AI planning: { message: '...', retry: true }
+  if (typeof detail?.message === 'string') return detail.message;
   // Pydantic validation errors: [{ loc: [...], msg: '...' }, ...]
   if (Array.isArray(detail) && detail.length > 0) {
     return detail

@@ -12,6 +12,7 @@ const APP_LINKS = [
   { to: '/trips/new', label: 'New Trip' },
   { to: '/trips', label: 'My Trips', end: true },
   { to: '/profile', label: 'Profile' }
+  { to: '/plan', label: 'AI Plan' },
 ];
 
 export default function Navbar() {
