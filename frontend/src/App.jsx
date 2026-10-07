@@ -17,6 +17,7 @@ import Home from './pages/Home';
 import NewTrip from './pages/NewTrip';
 import Itinerary from './pages/Itinerary';
 import MyTrips from './pages/MyTrips';
+import Profile from './pages/Profile';
 import NotFound from './pages/NotFound';
 
 const PAGE_TITLES = {
@@ -27,13 +28,14 @@ const PAGE_TITLES = {
   '/trips/new': 'Plan a new trip',
   '/trips': 'My trips',
   '/trips/:tripId': 'Itinerary',
+  '/profile': 'Profile',
 };
 
 /** Layout with navbar + footer. Login/Register render full-screen instead. */
 function AppLayout() {
-  const mainRef = useRef(null);
   const { pathname } = useLocation();
   const firstRender = useRef(true);
+  const mainRef = useRef(null);
 
   // On navigation: scroll to top and move focus to the page so screen reader
   // and keyboard users start at the new content.
@@ -89,6 +91,7 @@ export default function App() {
             <Route path="/trips" element={<MyTrips />} />
             <Route path="/trips/new" element={<NewTrip />} />
             <Route path="/trips/:tripId" element={<Itinerary />} />
+            <Route path="/profile" element={<Profile />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Route>
