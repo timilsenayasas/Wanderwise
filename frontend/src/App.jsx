@@ -17,6 +17,7 @@ import Home from './pages/Home';
 import NewTrip from './pages/NewTrip';
 import Itinerary from './pages/Itinerary';
 import MyTrips from './pages/MyTrips';
+import PlanPreview from './pages/PlanPreview';
 import NotFound from './pages/NotFound';
 
 const PAGE_TITLES = {
@@ -27,6 +28,7 @@ const PAGE_TITLES = {
   '/trips/new': 'Plan a new trip',
   '/trips': 'My trips',
   '/trips/:tripId': 'Itinerary',
+  '/plan': 'AI trip plan',
 };
 
 /** Layout with navbar + footer. Login/Register render full-screen instead. */
@@ -89,6 +91,7 @@ export default function App() {
             <Route path="/trips" element={<MyTrips />} />
             <Route path="/trips/new" element={<NewTrip />} />
             <Route path="/trips/:tripId" element={<Itinerary />} />
+            <Route path="/plan" element={<PlanPreview />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Route>

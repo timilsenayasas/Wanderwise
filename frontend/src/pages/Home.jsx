@@ -8,7 +8,7 @@ import './Home.css';
 
 /** Upcoming features. Flip `ready: true` (and add `to`) as each one ships. */
 const UPCOMING = [
-  { icon: 'sparkles', title: 'AI trip plan', text: 'A full itinerary generated from your preferences.', feature: 'F3' },
+  { icon: 'sparkles', title: 'AI trip plan', text: 'A full itinerary generated from your preferences.', feature: 'F3', ready: true, to: '/plan' },
   { icon: 'wallet', title: 'Budget tracker', text: 'Every cost, tallied against your budget.', feature: 'F8' },
   { icon: 'chat', title: 'AI travel chat', text: 'Ask for changes in plain English.', feature: 'F4' },
   { icon: 'sun', title: 'Weather', text: 'Forecasts for each day of your trip.', feature: 'F9' },
@@ -95,7 +95,13 @@ export default function Home() {
                 </span>
                 <h3 className="soon-card__title">{f.title}</h3>
                 <p className="soon-card__text">{f.text}</p>
-                <span className="badge">Coming soon</span>
+                {f.ready ? (
+                  <Button to={f.to} variant="secondary" size="sm">
+                    Try it
+                  </Button>
+                ) : (
+                  <span className="badge">Coming soon</span>
+                )}
               </Card>
             </li>
           ))}
