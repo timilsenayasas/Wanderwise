@@ -22,7 +22,7 @@ from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import DateTime, Integer, String, create_engine, select, ForeignKey
+from sqlalchemy import DateTime, Integer, String, Text, Float, create_engine, select, ForeignKey
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -134,6 +134,20 @@ class User(Base):
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
 
+class Preference(Base):
+    __tablename__ = "preferences"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"), unique=True, nullable=False, index=True
+    )
+    home_city: Mapped[str] = mapped_column(String(120), default="", nullable=False)
+    interests: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    default_budget: Mapped[float | None] = mapped_column(Float, nullable=True)
+    travel_style: Mapped[str] = mapped_column(String(100), default="", nullable=False)
+
+
+
 class Trip(Base):
     __tablename__ = "trips"
 
@@ -198,6 +212,23 @@ class UserOut(BaseModel):
     id: int
     email: str
     name: str
+class PreferenceIn(BaseModel):
+    home_city: str = ""
+    interests: str = ""
+    default_budget: float | None = None
+    travel_style: str = ""
+
+
+class PreferenceOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    user_id: int
+    home_city: str
+    interests: str
+    default_budget: float | None
+    travel_style: str
+
 
 class TripIn(BaseModel):
     origin: str = Field(min_length=1, max_length=120)
@@ -613,6 +644,50 @@ def logout() -> Response:
 @app.get("/api/auth/me", response_model=UserOut)
 def me(user: CurrentUser) -> User:
     return user
+
+@app.get("/api/me/preferences", response_model=PreferenceOut)
+def get_preferences(user: CurrentUser, db: DbSession) -> PreferenceOut:
+    preference = db.scalar(
+        select(Preference).where(Preference.user_id == user.id)
+    )
+
+    if preference is None:
+        return PreferenceOut(
+            id=0,
+            user_id=user.id,
+            home_city="",
+            interests="",
+            default_budget=None,
+            travel_style="",
+        )
+
+    return preference
+
+
+@app.put("/api/me/preferences", response_model=PreferenceOut)
+def update_preferences(
+    body: PreferenceIn,
+    user: CurrentUser,
+    db: DbSession,
+) -> PreferenceOut:
+    preference = db.scalar(
+        select(Preference).where(Preference.user_id == user.id)
+    )
+
+    if preference is None:
+        preference = Preference(user_id=user.id)
+        db.add(preference)
+
+    preference.home_city = body.home_city
+    preference.interests = body.interests
+    preference.default_budget = body.default_budget
+    preference.travel_style = body.travel_style
+
+    db.commit()
+    db.refresh(preference)
+    return preference
+
+    
 
 @app.post("/api/trips", response_model=TripOut, status_code=status.HTTP_201_CREATED)
 def create_trip(body: TripIn, user: CurrentUser, db: DbSession) -> TripOut:
