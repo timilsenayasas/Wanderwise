@@ -11,7 +11,7 @@ const APP_LINKS = [
   { to: '/home', label: 'Home' },
   { to: '/trips/new', label: 'New Trip' },
   { to: '/trips', label: 'My Trips', end: true },
-  { to: '/profile', label: 'Profile' }
+  { to: '/profile', label: 'Profile' },
   { to: '/plan', label: 'AI Plan' },
 ];
 
