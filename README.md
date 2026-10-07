@@ -20,10 +20,10 @@ WanderWise puts route options, transport modes, cost estimates, and travel time 
 | Name | Role | GitHub |
 |------|------|--------|
 | Yasas Timilsena | TBD | @timilsenayasas |
-| Jeremiah S. | TBD | @jms1194 |
-| Ashley | TBD | @lash28 |
-| Heeba | TBD | @hmac1311|
-| Nesna | TBD | @neshnaprasai |
+| Jeremiah Shinkle | TBD | @jms1194 |
+| Ashley Lira | TBD | @lash28 |
+| Heeba Charaniya | TBD | @hmac1311|
+| Nesna Prasai | TBD | @neshnaprasai |
 
 **Team name:** [Wanderwise]
 
