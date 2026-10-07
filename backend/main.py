@@ -22,7 +22,7 @@ from pwdlib import PasswordHash
 from pwdlib.hashers.argon2 import Argon2Hasher
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, ValidationError, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
-from sqlalchemy import DateTime, Integer, String, create_engine, select
+from sqlalchemy import DateTime, Integer, String, create_engine, select, ForeignKey
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import DeclarativeBase, Mapped, Session, mapped_column, sessionmaker
 
@@ -134,6 +134,31 @@ class User(Base):
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
     )
 
+class Trip(Base):
+    __tablename__ = "trips"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=False,
+        index=True,
+    )
+
+    origin: Mapped[str] = mapped_column(String(120), nullable=False)
+    destination: Mapped[str] = mapped_column(String(120), nullable=False)
+    start_date: Mapped[date] = mapped_column(nullable=False)
+    end_date: Mapped[date] = mapped_column(nullable=False)
+
+    travelers: Mapped[int] = mapped_column(default=1, nullable=False)
+    budget: Mapped[float | None] = mapped_column(nullable=True)
+    interests: Mapped[str | None] = mapped_column(nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=lambda: datetime.now(timezone.utc),
+        nullable=False,
+    )
+
 
 # TODO(teammates): add the remaining tables here as their features land:
 #   preferences  (F1 profile: interests, home city, budget defaults)  -> FK users.id
@@ -174,6 +199,24 @@ class UserOut(BaseModel):
     email: str
     name: str
 
+class TripIn(BaseModel):
+    origin: str = Field(min_length=1, max_length=120)
+    destination: str = Field(min_length=1, max_length=120)
+    start_date: date
+    end_date: date
+    travelers: int = Field(default=1, ge=1, le=20)
+    budget: float | None = Field(default=None, ge=0)
+    interests: list[str] = Field(default_factory=list)
+
+    @field_validator("end_date")
+    @classmethod
+    def end_date_on_or_after_start_date(cls, end_date: date, info):
+        start_date = info.data.get("start_date")
+        if start_date and end_date < start_date:
+            raise ValueError("End date must be on or after start date")
+        return end_date
+
+
 class TripPlanRequest(BaseModel):
     """Trip constraints sent to the LLM itinerary generator."""
 
@@ -195,6 +238,36 @@ class TripPlanRequest(BaseModel):
         if start_date and end_date < start_date:
             raise ValueError("End date must be on or after start date")
         return end_date
+
+
+class TripOut(BaseModel):
+    id: int
+    origin: str
+    destination: str
+    start_date: date
+    end_date: date
+    travelers: int
+    budget: float | None
+    interests: list[str]
+    created_at: datetime
+
+
+def trip_to_out(trip: Trip) -> TripOut:
+    """Convert a database Trip into the public API response format."""
+    interests = trip.interests.split(",") if trip.interests else []
+
+    return TripOut(
+        id=trip.id,
+        origin=trip.origin,
+        destination=trip.destination,
+        start_date=trip.start_date,
+        end_date=trip.end_date,
+        travelers=trip.travelers,
+        budget=trip.budget,
+        interests=interests,
+        created_at=trip.created_at,
+    )
+
 
 class ItineraryActivity(BaseModel):
     start_time: str
@@ -541,6 +614,106 @@ def logout() -> Response:
 def me(user: CurrentUser) -> User:
     return user
 
+@app.post("/api/trips", response_model=TripOut, status_code=status.HTTP_201_CREATED)
+def create_trip(body: TripIn, user: CurrentUser, db: DbSession) -> TripOut:
+    trip = Trip(
+        user_id=user.id,
+        origin=body.origin,
+        destination=body.destination,
+        start_date=body.start_date,
+        end_date=body.end_date,
+        travelers=body.travelers,
+        budget=body.budget,
+        interests=",".join(body.interests) if body.interests else None,
+    )
+
+    db.add(trip)
+    db.commit()
+    db.refresh(trip)
+
+    return trip_to_out(trip)
+
+@app.get("/api/trips", response_model=list[TripOut])
+def list_trips(user: CurrentUser, db: DbSession) -> list[TripOut]:
+    trips = db.scalars(
+        select(Trip)
+        .where(Trip.user_id == user.id)
+        .order_by(Trip.created_at.desc(), Trip.id.desc())
+    ).all()
+
+    return [trip_to_out(trip) for trip in trips]
+
+@app.get("/api/trips/{trip_id}", response_model=TripOut)
+def get_trip(trip_id: int, user: CurrentUser, db: DbSession) -> TripOut:
+    trip = db.scalar(
+        select(Trip).where(
+            Trip.id == trip_id,
+            Trip.user_id == user.id,
+        )
+    )
+
+    if trip is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found",
+        )
+
+    return trip_to_out(trip)
+
+@app.put("/api/trips/{trip_id}", response_model=TripOut)
+def update_trip(
+    trip_id: int,
+    body: TripIn,
+    user: CurrentUser,
+    db: DbSession,
+) -> TripOut:
+    trip = db.scalar(
+        select(Trip).where(
+            Trip.id == trip_id,
+            Trip.user_id == user.id,
+        )
+    )
+
+    if trip is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found",
+        )
+
+    trip.origin = body.origin
+    trip.destination = body.destination
+    trip.start_date = body.start_date
+    trip.end_date = body.end_date
+    trip.travelers = body.travelers
+    trip.budget = body.budget
+    trip.interests = ",".join(body.interests) if body.interests else None
+
+    db.commit()
+    db.refresh(trip)
+
+    return trip_to_out(trip)
+
+@app.delete("/api/trips/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_trip(
+    trip_id: int,
+    user: CurrentUser,
+    db: DbSession,
+) -> None:
+    trip = db.scalar(
+        select(Trip).where(
+            Trip.id == trip_id,
+            Trip.user_id == user.id,
+        )
+    )
+
+    if trip is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Trip not found",
+        )
+
+    db.delete(trip)
+    db.commit()
 @app.post("/api/trips/plan", response_model=ItineraryResponse)
 def plan_trip(body: TripPlanRequest, user: CurrentUser) -> ItineraryResponse:
     """Generate an AI itinerary for the logged-in user."""
