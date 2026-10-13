@@ -10,6 +10,7 @@ uvicorn[standard]==0.53.0
 
 # --- Database ---
 SQLAlchemy==2.0.54
+alembic==1.20.0
 # Postgres driver (only used when DATABASE_URL is postgresql://...)
 psycopg[binary]==3.3.6
 
