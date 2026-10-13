@@ -56,3 +56,53 @@ export function passwordStrength(pw) {
   const labels = ['Too short', 'Weak', 'Fair', 'Good', 'Strong'];
   return { score, label: labels[score] };
 }
+
+/**
+ * Validate the New Trip form.
+ * Returns an object containing an error message for each invalid field.
+ */
+export function validateTrip(values) {
+  const errors = {};
+
+  if (!values.origin || !values.origin.trim()) {
+    errors.origin = 'Enter your starting location';
+  }
+
+  if (!values.destination || !values.destination.trim()) {
+    errors.destination = 'Enter your destination';
+  }
+
+  if (!values.startDate) {
+    errors.startDate = 'Choose a start date';
+  }
+
+  if (!values.endDate) {
+    errors.endDate = 'Choose an end date';
+  }
+
+  if (
+    values.startDate &&
+    values.endDate &&
+    values.endDate < values.startDate
+  ) {
+    errors.endDate = 'End date must be on or after the start date';
+  }
+
+  const travelers = Number(values.travelers);
+
+  if (!values.travelers || !Number.isInteger(travelers) || travelers < 1) {
+    errors.travelers = 'Enter at least 1 traveler';
+  }
+
+  if (values.budget === '' || values.budget == null) {
+    errors.budget = 'Enter a budget';
+  } else if (Number.isNaN(Number(values.budget)) || Number(values.budget) < 0) {
+    errors.budget = 'Enter a valid budget';
+  }
+
+  if (!values.interests || !values.interests.trim()) {
+    errors.interests = 'Enter at least one interest';
+  }
+
+  return errors;
+}

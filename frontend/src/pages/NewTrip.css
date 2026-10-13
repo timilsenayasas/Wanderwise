@@ -1,0 +1,52 @@
+.new-trip__header {
+  max-width: 720px;
+}
+
+.new-trip__card {
+  max-width: 900px;
+  margin: 0 auto;
+  box-shadow: var(--shadow-md);
+}
+
+.new-trip__form {
+  display: grid;
+  gap: var(--space-6);
+}
+
+.new-trip__grid {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.new-trip__interests {
+  grid-column: 1 / -1;
+}
+
+.new-trip__actions {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: var(--space-2);
+  border-top: 1px solid var(--color-border);
+}
+
+.new-trip__alert {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--color-error);
+  border-radius: var(--radius-md);
+  background: var(--color-error-soft);
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+@media (min-width: 700px) {
+  .new-trip__grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 599px) {
+  .new-trip__actions .btn {
+    width: 100%;
+  }
+}
