@@ -8,6 +8,11 @@ export default function MyTrips() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
+  const [deleteId, setDeleteId] = useState(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
+  const [success, setSuccess] = useState('');
+
   useEffect(() => {
     let active = true;
 
@@ -36,6 +41,29 @@ export default function MyTrips() {
     };
   }, []);
 
+  async function handleDelete(id) {
+    setDeleting(true);
+    setDeleteError('');
+    setSuccess('');
+
+    try {
+      await api.delete(`/trips/${id}`);
+
+      setTrips((current) =>
+        current.filter((trip) => trip.id !== id)
+      );
+
+      setDeleteId(null);
+      setSuccess('Trip deleted successfully.');
+    } catch (err) {
+      setDeleteError(
+        err.message || 'Unable to delete trip. Please try again.'
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   return (
     <main className="page container">
       <header className="page-header fade-up">
@@ -48,11 +76,23 @@ export default function MyTrips() {
 
       {error && <p role="alert">{error}</p>}
 
+      {success && (
+        <p role="status">{success}</p>
+      )}
+
+      {deleteError && (
+        <p role="alert">{deleteError}</p>
+      )}
+
       {!loading && !error && trips.length === 0 && (
         <div className="card card--pad-lg">
           <h2>No trips yet</h2>
           <p>Start planning your first adventure!</p>
-          <Link to="/home" className="btn btn--primary btn--md">
+
+          <Link
+            to="/home"
+            className="btn btn--primary btn--md"
+          >
             Plan a trip
           </Link>
         </div>
@@ -68,22 +108,96 @@ export default function MyTrips() {
               <h2>{trip.destination}</h2>
 
               <p>From: {trip.origin}</p>
+
               <p>
                 Dates: {trip.start_date} to {trip.end_date}
               </p>
+
               <p>Travelers: {trip.travelers}</p>
+
               <p>
-                Budget: {trip.budget != null
+                Budget:{' '}
+                {trip.budget != null
                   ? `$${trip.budget}`
                   : 'Not specified'}
               </p>
 
-              <Link
-                to={`/trips/${trip.id}`}
-                className="btn btn--secondary btn--md"
+              <div
+                style={{
+                  display: 'flex',
+                  gap: '12px',
+                  flexWrap: 'wrap',
+                  marginTop: '16px',
+                }}
               >
-                View trip
-              </Link>
+                <Link
+                  to={`/trips/${trip.id}`}
+                  className="btn btn--secondary btn--md"
+                >
+                  View trip
+                </Link>
+
+                <button
+                  type="button"
+                  className="btn btn--secondary btn--md"
+                  disabled={deleting}
+                  onClick={() => {
+                    setDeleteId(trip.id);
+                    setDeleteError('');
+                    setSuccess('');
+                  }}
+                >
+                  Delete trip
+                </button>
+              </div>
+
+              {deleteId === trip.id && (
+                <div
+                  role="group"
+                  aria-label="Confirm deletion"
+                  style={{
+                    marginTop: '20px',
+                    padding: '16px',
+                    border: '1px solid #ddd',
+                    borderRadius: '12px',
+                  }}
+                >
+                  <p>
+                    Are you sure you want to delete your
+                    trip to {trip.destination}?
+                  </p>
+
+                  <p>This action cannot be undone.</p>
+
+                  <div
+                    style={{
+                      display: 'flex',
+                      gap: '12px',
+                      marginTop: '12px',
+                    }}
+                  >
+                    <button
+                      type="button"
+                      className="btn btn--primary btn--md"
+                      disabled={deleting}
+                      onClick={() => handleDelete(trip.id)}
+                    >
+                      {deleting
+                        ? 'Deleting...'
+                        : 'Yes, delete'}
+                    </button>
+
+                    <button
+                      type="button"
+                      className="btn btn--secondary btn--md"
+                      disabled={deleting}
+                      onClick={() => setDeleteId(null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
             </div>
           ))}
         </div>
