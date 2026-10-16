@@ -1,9 +1,13 @@
 /* Home dashboard for logged-in users. */
+import { useEffect, useState } from 'react';
+import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import Icon from '../components/Icon';
+import { TripCard } from './MyTrips';
+import './MyTrips.css';
 import './Home.css';
 
 /** Upcoming features. Flip `ready: true` (and add `to`) as each one ships. */
@@ -25,6 +29,18 @@ function greeting() {
 export default function Home() {
   const { user } = useAuth();
   const firstName = user?.name?.split(' ')[0] || 'traveler';
+  const [recentTrips, setRecentTrips] = useState(null); // null = still loading
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .get('/trips')
+      .then((trips) => !cancelled && setRecentTrips(trips.slice(0, 3)))
+      .catch(() => !cancelled && setRecentTrips([]));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="page container home">
@@ -69,19 +85,29 @@ export default function Home() {
             View all
           </Button>
         </div>
-        {/* TODO(F12): replace with the user's saved trips once the trips API exists. */}
-        <Card padding="sm">
-          <EmptyState
-            headingLevel={3}
-            title="No saved trips yet"
-            description="Your adventures will live here. Plan your first trip and save it to see it on your dashboard."
-            action={
-              <Button to="/trips/new" variant="secondary">
-                Plan your first trip
-              </Button>
-            }
-          />
-        </Card>
+        {recentTrips && recentTrips.length > 0 && (
+          <ul className="my-trips__grid">
+            {recentTrips.map((trip) => (
+              <li key={trip.id}>
+                <TripCard trip={trip} />
+              </li>
+            ))}
+          </ul>
+        )}
+        {recentTrips && recentTrips.length === 0 && (
+          <Card padding="sm">
+            <EmptyState
+              headingLevel={3}
+              title="No saved trips yet"
+              description="Your adventures will live here. Plan your first trip and save it to see it on your dashboard."
+              action={
+                <Button to="/trips/new" variant="secondary">
+                  Plan your first trip
+                </Button>
+              }
+            />
+          </Card>
+        )}
       </section>
 
       <section className="home__section" aria-labelledby="soon-title">
