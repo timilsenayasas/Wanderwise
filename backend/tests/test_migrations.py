@@ -1,3 +1,4 @@
+
 """Database migrations (Alembic) stay in sync with the models and keep old data."""
 
 from alembic.autogenerate import compare_metadata
@@ -16,13 +17,17 @@ def make_engine(tmp_path):
 def test_migrations_match_models(tmp_path):
     """Fails if someone changed models.py without creating a migration.
 
-    Fix: from backend/, run  alembic revision --autogenerate -m "describe the change"
+    Fix: from backend/, run
+    alembic revision --autogenerate -m "describe the change"
     """
     engine = make_engine(tmp_path)
     upgrade_database(engine)
 
     with engine.connect() as connection:
-        context = MigrationContext.configure(connection, opts={"compare_type": True})
+        context = MigrationContext.configure(
+            connection,
+            opts={"compare_type": True},
+        )
         diff = compare_metadata(context, Base.metadata)
 
     engine.dispose()
@@ -30,17 +35,22 @@ def test_migrations_match_models(tmp_path):
 
 
 def test_upgrade_is_safe_to_run_twice(tmp_path):
+    """Running migrations multiple times should not cause errors."""
     engine = make_engine(tmp_path)
+
     upgrade_database(engine)
-    upgrade_database(engine)  # app restarts must not fail
+    upgrade_database(engine)
+
     engine.dispose()
 
 
 def test_existing_database_without_migrations_keeps_its_data(tmp_path):
-    """A wanderwise.db made before Alembic (users table only) is adopted, not wiped."""
+    """A database created before Alembic should retain its existing users."""
     engine = make_engine(tmp_path)
+
     users = Base.metadata.tables["users"]
     users.create(engine)
+
     with engine.begin() as connection:
         connection.execute(
             text(
@@ -52,23 +62,74 @@ def test_existing_database_without_migrations_keeps_its_data(tmp_path):
     upgrade_database(engine)
 
     tables = set(inspect(engine).get_table_names())
-    assert {"users", "preferences", "trips", "alembic_version"} <= tables
+
+    assert {
+        "users",
+        "preferences",
+        "trips",
+        "trip_days",
+        "activities",
+        "cost_items",
+        "alembic_version",
+    } <= tables
+
     with engine.connect() as connection:
-        emails = connection.execute(text("SELECT email FROM users")).scalars().all()
+        emails = connection.execute(
+            text("SELECT email FROM users")
+        ).scalars().all()
+
     engine.dispose()
+
     assert emails == ["old@example.com"]
 
 
 def test_existing_database_with_empty_version_table_is_adopted(tmp_path):
-    """An interrupted first run can leave alembic_version empty; that must still work."""
+    """An interrupted first run can leave alembic_version empty.
+
+    Simulate the original database before the new tables were added.
+    Alembic should adopt it and apply the remaining migrations.
+    """
     engine = make_engine(tmp_path)
-    Base.metadata.create_all(engine)
+
+    # Only create the original baseline tables.
+    # Do not create trip_days, activities, or cost_items here.
+    baseline_tables = [
+        Base.metadata.tables[name]
+        for name in ("users", "preferences", "trips")
+    ]
+
+    Base.metadata.create_all(
+        engine,
+        tables=baseline_tables,
+    )
+
     with engine.begin() as connection:
-        connection.execute(text("CREATE TABLE alembic_version (version_num VARCHAR(32) NOT NULL)"))
+        connection.execute(
+            text(
+                "CREATE TABLE alembic_version "
+                "(version_num VARCHAR(32) NOT NULL)"
+            )
+        )
 
     upgrade_database(engine)
 
     with engine.connect() as connection:
-        version = connection.execute(text("SELECT version_num FROM alembic_version")).scalar()
+        version = connection.execute(
+            text("SELECT version_num FROM alembic_version")
+        ).scalar()
+
+    tables = set(inspect(engine).get_table_names())
+
     engine.dispose()
+
     assert version is not None
+
+    assert {
+        "users",
+        "preferences",
+        "trips",
+        "trip_days",
+        "activities",
+        "cost_items",
+        "alembic_version",
+    } <= tables
