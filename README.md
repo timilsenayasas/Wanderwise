@@ -47,7 +47,7 @@ WanderWise puts route options, transport modes, cost estimates, and travel time 
 
 ## Tech Stack
 
-- **Backend:** Python 3.10+, FastAPI, SQLAlchemy (SQLite locally, Postgres optional), Argon2 password hashing, JWT in an httpOnly cookie
+- **Backend:** Python 3.10+, FastAPI, SQLAlchemy + Alembic migrations (SQLite locally, Postgres optional), Argon2 password hashing, JWT in an httpOnly cookie, Gemini for AI itineraries
 - **Frontend:** React 19, Vite, React Router
 - **Tests:** pytest (backend), Vitest + Testing Library (frontend)
 
@@ -55,9 +55,19 @@ WanderWise puts route options, transport modes, cost estimates, and travel time 
 Wanderwise/
 ├── requirements.txt        Python dependencies (pinned) — the one source of truth
 ├── backend/
-│   ├── main.py             whole API: Config → Database → Models → Schemas → Security → Endpoints
+│   ├── main.py             entry point (uvicorn main:app), loads app/main.py
+│   ├── app/
+│   │   ├── main.py         builds the app, runs migrations on startup
+│   │   ├── config.py       settings from .env
+│   │   ├── database.py     engine, sessions, Base
+│   │   ├── models.py       database tables
+│   │   ├── schemas.py      request/response shapes (the API contract)
+│   │   ├── security.py     passwords, JWT cookie, CurrentUser
+│   │   ├── services/       outside integrations (llm.py = Gemini)
+│   │   └── routers/        endpoints, one file per feature (auth, preferences, trips, plan)
+│   ├── migrations/         Alembic: one file per database change
 │   ├── .env.example        copy to .env
-│   └── tests/test_main.py
+│   └── tests/              one file per feature, shared setup in conftest.py
 └── frontend/
     ├── vite.config.js      dev server :5173, proxies /api → :8000
     └── src/
@@ -143,6 +153,32 @@ cd frontend && npm test
 6. Delete the branch after merging.
 
 Adding a Python package: `pip install <pkg>`, then add `<pkg>==<version>` to the root `requirements.txt`. Adding an npm package: `npm install <pkg>` (commits the updated `package.json` and `package-lock.json`).
+
+After pulling: if `requirements.txt` changed, run `pip install -r requirements.txt` (venv active). If `package.json` changed, run `npm install`.
+
+---
+
+## Backend: Adding Features
+
+- **New endpoint:** add it to the matching file in `backend/app/routers/`, or create `routers/<feature>.py` and include it in `app/main.py`. Protect it with `user: CurrentUser`.
+- **New request/response shape:** `app/schemas.py`.
+- **Outside API (maps, weather…):** `app/services/<name>.py`. Read keys from `settings`, never hard-code them.
+- **Tests:** `backend/tests/test_<feature>.py`. Use the `client` fixture and `register(client)` from `conftest.py`.
+
+### Database changes (Alembic)
+
+Never edit an existing migration. Each change gets a new one:
+
+1. Change or add the table in `backend/app/models.py`.
+2. From `backend/` with the venv active, generate the migration:
+   ```bash
+   alembic revision --autogenerate -m "add trip_days table"
+   ```
+3. Open the new file in `backend/migrations/versions/` and check it does what you expect.
+4. Restart the backend. It applies new migrations on startup (or run `alembic upgrade head`).
+5. Commit the model change **and** the migration file together.
+
+If you forget step 2, the `test_migrations_match_models` test fails in CI and tells you.
 
 ---
 
