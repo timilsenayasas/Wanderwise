@@ -9,6 +9,7 @@ import BudgetBreakdown from './BudgetBreakdown';
 import BudgetStatus from './BudgetStatus';
 import Button from './Button';
 import Card from './Card';
+import CostLines from './CostLines';
 import EmptyState from './EmptyState';
 import Spinner from './Spinner';
 import './BudgetTab.css';
@@ -76,7 +77,7 @@ export default function BudgetTab({ trip, onShowItinerary }) {
           <EmptyState
             headingLevel={3}
             title="No costs yet"
-            description="Generate your day-by-day plan on the Itinerary tab to get cost estimates."
+            description="Generate your day-by-day plan on the Itinerary tab to get cost estimates, or add your own costs below."
             action={<Button onClick={onShowItinerary}>Go to itinerary</Button>}
           />
         </Card>
@@ -86,6 +87,7 @@ export default function BudgetTab({ trip, onShowItinerary }) {
           <BudgetBreakdown budget={budget} />
         </>
       )}
+      <CostLines trip={trip} items={budget.items} onChanged={() => load({ quiet: true })} />
     </section>
   );
 }
