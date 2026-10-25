@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { api } from '../api/client';
@@ -28,9 +28,52 @@ export default function NewTrip() {
   const [errors, setErrors] = useState({});
   const [submitting, setSubmitting] = useState(false);
 
+  const editedFields = useRef(new Set());
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadPreferences() {
+      try {
+        const preferences = await api.get('/me/preferences');
+
+        if (!active) return;
+
+        const savedValues = {
+          origin: preferences.home_city || '',
+          budget: preferences.default_budget == null
+            ? ''
+            : String(preferences.default_budget),
+          interests: preferences.interests || '',
+        };
+
+        setForm((current) => {
+          const updated = { ...current };
+
+          for (const [field, value] of Object.entries(savedValues)) {
+            if (!editedFields.current.has(field) && value !== '') {
+              updated[field] = value;
+            }
+          }
+
+          return updated;
+        });
+      } catch (error) {
+        console.warn('Could not load profile preferences:', error);
+      }
+    }
+
+    loadPreferences();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+
   function handleChange(event) {
     const { name, value } = event.target;
-
+  editedFields.current.add(name);
     setForm((current) => ({
       ...current,
       [name]: value,
