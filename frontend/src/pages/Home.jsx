@@ -1,5 +1,6 @@
 /* Home dashboard for logged-in users. */
 import { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import Button from '../components/Button';
@@ -10,12 +11,23 @@ import { TripCard } from './MyTrips';
 import './MyTrips.css';
 import './Home.css';
 
-/** Upcoming features. Flip `ready: true` (and add `to`) as each one ships. */
+/**
+ * Built features. Budget and map open that tab on the newest trip, or My Trips
+ * when there isn't one yet (or trips are still loading).
+ */
+function actions(latestTrip) {
+  const tripTab = (tab) => (latestTrip ? `/trips/${latestTrip.id}?tab=${tab}` : '/trips');
+  return [
+    { icon: 'plane', title: 'Plan a trip', text: 'Pick a place, dates and budget.', to: '/trips/new' },
+    { icon: 'wallet', title: 'See your budget', text: 'Every cost, tallied against your budget.', to: tripTab('budget') },
+    { icon: 'map', title: 'See it on a map', text: 'Every stop, pinned in order.', to: tripTab('map') },
+  ];
+}
+
+/** Features still being built. Move one into actions() when it ships. */
 const UPCOMING = [
-  { icon: 'wallet', title: 'Budget tracker', text: 'Every cost, tallied against your budget.', feature: 'F8' },
-  { icon: 'chat', title: 'AI travel chat', text: 'Ask for changes in plain English.', feature: 'F4' },
-  { icon: 'sun', title: 'Weather', text: 'Forecasts for each day of your trip.', feature: 'F9' },
-  { icon: 'map', title: 'Interactive map', text: 'All your stops, pinned and connected.', feature: 'F11' },
+  { icon: 'chat', title: 'AI travel chat', text: 'Ask for changes in plain English.' },
+  { icon: 'sun', title: 'Weather', text: 'Forecasts for each day of your trip.' },
 ];
 
 function greeting() {
@@ -109,24 +121,40 @@ export default function Home() {
         )}
       </section>
 
+      <section className="home__section" aria-labelledby="actions-title">
+        <h2 id="actions-title">What you can do</h2>
+        <ul className="action-grid">
+          {actions(recentTrips?.[0]).map((a, i) => (
+            <li key={a.title} className="fade-up" style={{ animationDelay: `${120 + i * 70}ms` }}>
+              <Card as={Link} to={a.to} padding="sm" interactive className="action-card">
+                <span className="action-card__icon" aria-hidden="true">
+                  <Icon name={a.icon} size={22} />
+                </span>
+                <div>
+                  <h3 className="action-card__title">{a.title}</h3>
+                  <p className="action-card__text">{a.text}</p>
+                </div>
+                <Icon name="arrowRight" size={20} className="action-card__arrow" />
+              </Card>
+            </li>
+          ))}
+        </ul>
+      </section>
+
       <section className="home__section" aria-labelledby="soon-title">
         <h2 id="soon-title">Coming soon</h2>
         <ul className="soon-grid">
-          {UPCOMING.map((f, i) => (
-            <li key={f.title} className="fade-up" style={{ animationDelay: `${120 + i * 70}ms` }}>
-              <Card className="soon-card" padding="md">
+          {UPCOMING.map((f) => (
+            <li key={f.title}>
+              <Card tone="sand" padding="sm" className="soon-card">
                 <span className="soon-card__icon" aria-hidden="true">
-                  <Icon name={f.icon} size={26} />
+                  <Icon name={f.icon} size={22} />
                 </span>
-                <h3 className="soon-card__title">{f.title}</h3>
-                <p className="soon-card__text">{f.text}</p>
-                {f.ready ? (
-                  <Button to={f.to} variant="secondary" size="sm">
-                    Try it
-                  </Button>
-                ) : (
+                <div>
+                  <h3 className="soon-card__title">{f.title}</h3>
+                  <p className="soon-card__text">{f.text}</p>
                   <span className="badge">Coming soon</span>
-                )}
+                </div>
               </Card>
             </li>
           ))}

@@ -78,49 +78,93 @@
   margin: 0;
 }
 
-/* Coming soon grid */
+/* "What you can do": each card is one link (icon, text, arrow). */
+.action-grid,
 .soon-grid {
   list-style: none;
   padding: 0;
-  margin: var(--space-4) 0 0;
+  margin: 0;
   display: grid;
-  gap: var(--space-4);
-  grid-template-columns: 1fr;
+  gap: var(--space-3);
+}
+
+.action-grid > li,
+.soon-grid > li {
+  display: flex;
+}
+
+@media (min-width: 720px) {
+  .action-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (min-width: 560px) {
   .soon-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media (min-width: 960px) {
-  .soon-grid { grid-template-columns: repeat(3, 1fr); }
+.action-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  color: inherit;
+  text-decoration: none;
 }
 
-.soon-card {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+.action-card:hover {
+  color: inherit;
 }
 
+/* The global focus ring would square off the card's corners. */
+.action-card:focus-visible {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--focus-ring);
+}
+
+.action-card__icon,
 .soon-card__icon {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
-  margin-bottom: var(--space-3);
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-md);
   background: var(--color-primary-soft);
   color: var(--color-primary);
 }
 
+.action-card__title,
 .soon-card__title {
+  margin: 0 0 var(--space-1);
   font-size: var(--text-lg);
-  margin-bottom: var(--space-1);
+}
+
+.action-card__text,
+.soon-card__text {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.action-card__arrow {
+  color: var(--color-accent-strong);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .action-card:hover .action-card__arrow {
+    transform: translateX(3px);
+  }
+}
+
+/* Coming soon: quieter sand cards, nothing to click. */
+.soon-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: var(--space-3);
 }
 
 .soon-card__text {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  flex: 1;
+  margin-bottom: var(--space-2);
 }
