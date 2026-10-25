@@ -1,6 +1,6 @@
 /* S1 Login (user story R2). */
 import { useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../components/Toast';
 import AuthLayout from '../components/AuthLayout';
@@ -11,6 +11,8 @@ import { validateEmail, validatePassword } from '../lib/validation';
 export default function Login() {
   const { login } = useAuth();
   const toast = useToast();
+  // Set by <ProtectedRoute> when a session ran out while the user was on a page.
+  const sessionExpired = useLocation().state?.sessionExpired === true;
   const [values, setValues] = useState({ email: '', password: '' });
   const [errors, setErrors] = useState({});
   const [serverError, setServerError] = useState('');
@@ -65,6 +67,11 @@ export default function Login() {
       }
     >
       <form className="auth-form" onSubmit={handleSubmit} noValidate>
+        {sessionExpired && !serverError && (
+          <p className="form-alert form-alert--info" role="status">
+            Your session expired. Please log in again.
+          </p>
+        )}
         {serverError && (
           <p className="form-alert" role="alert" tabIndex={-1} ref={alertRef}>
             {serverError}

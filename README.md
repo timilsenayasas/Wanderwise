@@ -111,6 +111,7 @@ Generate a JWT secret with `python -c "import secrets; print(secrets.token_urlsa
 
 - It must be at least 32 characters. Locally a weak one only logs a warning, but with `COOKIE_SECURE=true` (deployed) the server refuses to start.
 - **Made your `.env` before Sep 29?** Generate a new secret. The old shared one is public in our git history, and the server refuses it.
+- Sessions last 60 minutes and renew while you're active, up to 7 days after logging in (`JWT_EXPIRE_MINUTES`, `SESSION_MAX_DAYS`).
 
 Check it works: http://localhost:8000/api/health → `{"status":"ok"}`. Interactive API docs: http://localhost:8000/docs
 

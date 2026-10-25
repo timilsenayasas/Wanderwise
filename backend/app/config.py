@@ -32,6 +32,8 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./wanderwise.db"
     jwt_secret: str = "change-me"
     jwt_expire_minutes: int = 60
+    # Active users stay logged in, but must log in again this long after they last did.
+    session_max_days: int = 7
     cookie_secure: bool = False
     # Comma-separated list, e.g. "http://localhost:5173,https://wanderwise.app"
     cors_origins: str = "http://localhost:5173"

@@ -1,17 +1,20 @@
 """Auth: register, login, logout, me, password storage."""
 
 import hashlib
+import re
+from datetime import timedelta
 
+import jwt
 import pytest
 from conftest import VALID_USER, register
 from pydantic import ValidationError
 
-from app import config
-from app.config import Settings
+from app import config, security
+from app.config import Settings, settings
 from app.database import get_db
 from app.main import app
-from app.models import User
-from app.security import SESSION_COOKIE
+from app.models import User, utcnow
+from app.security import SESSION_COOKIE, decode_access_token, session_deadline
 
 
 def test_health(client):
@@ -160,3 +163,97 @@ def test_leaked_secret_always_refused(monkeypatch, cookie_secure):
     monkeypatch.setattr(config, "LEAKED_JWT_SECRET_SHA256", hashlib.sha256(leaked.encode()).hexdigest())
     with pytest.raises(ValidationError, match="git history"):
         make_settings(jwt_secret=leaked, cookie_secure=cookie_secure)
+
+
+# --- Session renewal and the 7-day cap ------------------------------------
+# PyJWT checks exp against the real clock, so these tests fake the app clock
+# *backwards* (log in "in the past") instead of waiting.
+SESSION = timedelta(minutes=settings.jwt_expire_minutes)
+MAX_SESSION = timedelta(days=settings.session_max_days)
+
+
+def whole_seconds_now():
+    return utcnow().replace(microsecond=0)
+
+
+def max_age(response) -> int:
+    return int(re.search(r"Max-Age=(\d+)", response.headers["set-cookie"]).group(1))
+
+
+def use_token_issued_at(client, monkeypatch, issued_at, user_id, auth_time):
+    """Replace the session cookie with one the server issued at `issued_at`."""
+    with monkeypatch.context() as m:
+        m.setattr(security, "utcnow", lambda: issued_at)
+        token, _ = security.create_access_token(user_id, auth_time)
+    client.cookies.clear()
+    client.cookies.set(SESSION_COOKIE, token)
+    return decode_access_token(token)
+
+
+def test_login_cookie_max_age_matches_token_expiry(client):
+    r = register(client)
+    claims = decode_access_token(r.cookies[SESSION_COOKIE])
+    assert claims.expires_at - claims.auth_time == SESSION
+    assert max_age(r) == SESSION.total_seconds()
+
+
+def test_fresh_session_is_not_renewed(client):
+    register(client)
+    r = client.get("/api/auth/me")
+    assert r.status_code == 200
+    assert "set-cookie" not in r.headers
+
+
+def test_active_session_is_renewed_after_half_its_life(client, monkeypatch):
+    user_id = register(client).json()["id"]
+    login = whole_seconds_now() - timedelta(minutes=31)
+    before = use_token_issued_at(client, monkeypatch, login, user_id, auth_time=login)
+
+    r = client.get("/api/auth/me")
+    assert r.status_code == 200
+    after = decode_access_token(r.cookies[SESSION_COOKIE])
+    assert after.auth_time == before.auth_time  # renewing doesn't restart the 7-day cap
+    assert after.expires_at > before.expires_at
+    assert max_age(r) == SESSION.total_seconds()
+
+
+def test_renewal_never_goes_past_the_cap(client, monkeypatch):
+    user_id = register(client).json()["id"]
+    now = whole_seconds_now()
+    # Logged in almost 7 days ago; the cap is 45 minutes away.
+    auth_time = now - MAX_SESSION + timedelta(minutes=45)
+    use_token_issued_at(client, monkeypatch, now - timedelta(minutes=31), user_id, auth_time)
+
+    r = client.get("/api/auth/me")
+    renewed = decode_access_token(r.cookies[SESSION_COOKIE])
+    assert renewed.expires_at == session_deadline(auth_time)
+    assert max_age(r) <= 45 * 60
+
+    # Already at the cap, so there's nothing to renew.
+    assert "set-cookie" not in client.get("/api/auth/me").headers
+
+
+def test_session_past_the_cap_is_rejected(client, monkeypatch):
+    user_id = register(client).json()["id"]
+    now = whole_seconds_now()
+    use_token_issued_at(client, monkeypatch, now, user_id, auth_time=now - MAX_SESSION - timedelta(minutes=1))
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_old_token_without_auth_time_is_rejected(client):
+    user_id = register(client).json()["id"]
+    old_style = jwt.encode(
+        {"sub": str(user_id), "exp": utcnow() + SESSION}, settings.jwt_secret, algorithm=security.JWT_ALGORITHM
+    )
+    client.cookies.clear()
+    client.cookies.set(SESSION_COOKIE, old_style)
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_other_protected_routes_renew_too(client, monkeypatch):
+    user_id = register(client).json()["id"]
+    login = whole_seconds_now() - timedelta(minutes=31)
+    use_token_issued_at(client, monkeypatch, login, user_id, auth_time=login)
+    r = client.get("/api/trips")
+    assert r.status_code == 200
+    assert SESSION_COOKIE in r.cookies

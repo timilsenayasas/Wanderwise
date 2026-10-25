@@ -6,10 +6,10 @@ import { AuthContext } from '../context/AuthContext';
 import { ToastProvider } from '../components/Toast';
 import Login from '../pages/Login';
 
-function renderLogin(authOverrides = {}) {
+function renderLogin(authOverrides = {}, routeState = null) {
   const auth = { user: null, loading: false, login: vi.fn(), register: vi.fn(), logout: vi.fn(), ...authOverrides };
   render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[{ pathname: '/login', state: routeState }]}>
       <ToastProvider>
         <AuthContext.Provider value={auth}>
           <Login />
@@ -28,6 +28,12 @@ describe('Login page', () => {
     expect(screen.getByLabelText(/^password$/i)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: /log in/i })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: /create an account/i })).toHaveAttribute('href', '/register');
+    expect(screen.queryByText(/session expired/i)).not.toBeInTheDocument();
+  });
+
+  it('says the session expired when sent here by an expired session', () => {
+    renderLogin({}, { sessionExpired: true });
+    expect(screen.getByRole('status')).toHaveTextContent(/your session expired\. please log in again/i);
   });
 
   it('shows inline errors on empty submit and does not call login', async () => {
