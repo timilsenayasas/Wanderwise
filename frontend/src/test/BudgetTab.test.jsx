@@ -4,15 +4,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
 import BudgetTab from '../components/BudgetTab';
 import { formatCurrency } from '../lib/format';
-import { budgetResponse, TRIP } from './budgetFixtures';
+import { budgetResponse, emptyBudget, HOTEL, TRIP } from './budgetFixtures';
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } };
 });
 
-function renderTab(trip = TRIP) {
-  render(<BudgetTab trip={trip} />);
+function renderTab(trip = TRIP, onShowItinerary = vi.fn()) {
+  render(<BudgetTab trip={trip} onShowItinerary={onShowItinerary} />);
+  return onShowItinerary;
 }
 
 /** Load the tab with this budget response and wait for it to show. */
@@ -151,5 +152,27 @@ describe('Compared to the budget', () => {
     expect(screen.getByRole('status')).toHaveTextContent(/this trip has no budget yet/i);
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByText(/left of your/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('No plan and no cost lines', () => {
+  it('shows an empty state that points to generating the plan', async () => {
+    api.get.mockResolvedValue(emptyBudget());
+    const onShowItinerary = renderTab();
+
+    expect(await screen.findByRole('heading', { name: 'No costs yet' })).toBeInTheDocument();
+    expect(screen.getByText(/generate your day-by-day plan/i)).toBeInTheDocument();
+    expect(screen.queryByRole('region', { name: 'By category' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /go to itinerary/i }));
+
+    expect(onShowItinerary).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the breakdown once the trip has any cost line', async () => {
+    await openWith(budgetResponse({ per_day: [], items: [HOTEL], total: 300, not_by_day: 300 }));
+
+    expect(screen.queryByRole('heading', { name: 'No costs yet' })).not.toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'By category' })).toBeInTheDocument();
   });
 });

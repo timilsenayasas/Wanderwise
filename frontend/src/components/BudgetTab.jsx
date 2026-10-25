@@ -9,10 +9,11 @@ import BudgetBreakdown from './BudgetBreakdown';
 import BudgetStatus from './BudgetStatus';
 import Button from './Button';
 import Card from './Card';
+import EmptyState from './EmptyState';
 import Spinner from './Spinner';
 import './BudgetTab.css';
 
-export default function BudgetTab({ trip }) {
+export default function BudgetTab({ trip, onShowItinerary }) {
   const [budget, setBudget] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [loadError, setLoadError] = useState('');
@@ -64,11 +65,27 @@ export default function BudgetTab({ trip }) {
     );
   }
 
+  // No plan and no cost lines yet: nothing to break down.
+  const isEmpty = budget.per_day.length === 0 && budget.items.length === 0;
+
   return (
     <section className="budget-tab" aria-labelledby="budget-title">
       <h2 id="budget-title">Budget</h2>
-      <BudgetStatus budget={budget} />
-      <BudgetBreakdown budget={budget} />
+      {isEmpty ? (
+        <Card padding="lg">
+          <EmptyState
+            headingLevel={3}
+            title="No costs yet"
+            description="Generate your day-by-day plan on the Itinerary tab to get cost estimates."
+            action={<Button onClick={onShowItinerary}>Go to itinerary</Button>}
+          />
+        </Card>
+      ) : (
+        <>
+          <BudgetStatus budget={budget} />
+          <BudgetBreakdown budget={budget} />
+        </>
+      )}
     </section>
   );
 }

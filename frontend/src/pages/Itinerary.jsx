@@ -13,7 +13,7 @@ import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import ItineraryView from '../components/ItineraryView';
 import Spinner from '../components/Spinner';
-import Tabs, { TabPanel } from '../components/Tabs';
+import Tabs, { TabPanel, tabId } from '../components/Tabs';
 import { formatBudget, formatDateRange, tripLength } from '../lib/format';
 import './MyTrips.css'; // interest tags
 import './Itinerary.css';
@@ -98,6 +98,12 @@ export default function Itinerary() {
     else params.delete('tab'); // Itinerary is the default
     // Replace, so switching tabs doesn't fill the Back button's history.
     setSearchParams(params, { replace: true });
+  }
+
+  // From the Budget tab's empty state: the button that was focused is about to be hidden.
+  function showItinerary() {
+    selectTab('itinerary');
+    document.getElementById(tabId('trip', 'itinerary'))?.focus();
   }
 
   function cancelRegenerate() {
@@ -249,7 +255,7 @@ export default function Itinerary() {
 
         <TabPanel idPrefix="trip" id="budget" selected={tab}>
           {/* Mounted only while open, so opening the tab always loads fresh totals. */}
-          {tab === 'budget' && <BudgetTab trip={trip} />}
+          {tab === 'budget' && <BudgetTab trip={trip} onShowItinerary={showItinerary} />}
         </TabPanel>
       </div>
     </div>

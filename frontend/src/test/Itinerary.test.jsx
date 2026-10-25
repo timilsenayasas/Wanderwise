@@ -4,7 +4,7 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
 import Itinerary from '../pages/Itinerary';
-import { budgetResponse } from './budgetFixtures';
+import { budgetResponse, emptyBudget } from './budgetFixtures';
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal();
@@ -55,10 +55,10 @@ function savedPlan(...names) {
 }
 
 /** GET /trips/7 returns TRIP; /plan returns `plan` (null = none saved yet); /budget a budget. */
-function mockLoad(plan, trip = TRIP) {
+function mockLoad(plan, trip = TRIP, budget = budgetResponse()) {
   api.get.mockImplementation((path) => {
     if (path.endsWith('/plan')) return Promise.resolve(plan);
-    if (path.endsWith('/budget')) return Promise.resolve(budgetResponse());
+    if (path.endsWith('/budget')) return Promise.resolve(budget);
     return Promise.resolve(trip);
   });
 }
@@ -246,6 +246,19 @@ describe('Trip page tabs', () => {
     expect(await screen.findByRole('heading', { name: 'Budget' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Budget' })).toHaveAttribute('aria-selected', 'true');
     expect(api.get).toHaveBeenCalledWith('/trips/7/budget');
+  });
+
+  it("the Budget tab's empty state leads back to the Itinerary tab", async () => {
+    mockLoad(null, TRIP, emptyBudget());
+    renderTrip(undefined, '?tab=budget');
+
+    await userEvent.click(await screen.findByRole('button', { name: /go to itinerary/i }));
+
+    const itinerary = screen.getByRole('tab', { name: 'Itinerary' });
+    expect(itinerary).toHaveAttribute('aria-selected', 'true');
+    expect(itinerary).toHaveFocus();
+    expect(screen.getByRole('button', { name: /generate ai itinerary/i })).toBeVisible();
+    expect(screen.getByTestId('search')).toBeEmptyDOMElement();
   });
 
   it('keeps ?tab= when clearing the New Trip flag', async () => {

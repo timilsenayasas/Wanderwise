@@ -43,3 +43,16 @@ export function budgetResponse(overrides = {}) {
     ...overrides,
   };
 }
+
+/** A trip with no plan and no cost lines: all zeros. */
+export function emptyBudget(overrides = {}) {
+  return budgetResponse({
+    categories: budgetResponse().categories.map(({ category }) => ({ category, amount: 0 })),
+    per_day: [],
+    not_by_day: 0,
+    total: 0,
+    remaining: 1200,
+    items: [],
+    ...overrides,
+  });
+}

@@ -9,7 +9,7 @@ import './Tabs.css';
  *         selected={tab} onSelect={setTab} />
  *   <TabPanel idPrefix="trip" id="plan" selected={tab}>…</TabPanel>
  */
-const tabId = (prefix, id) => `${prefix}-tab-${id}`;
+export const tabId = (prefix, id) => `${prefix}-tab-${id}`;
 const panelId = (prefix, id) => `${prefix}-panel-${id}`;
 
 export default function Tabs({ label, idPrefix, tabs, selected, onSelect }) {
