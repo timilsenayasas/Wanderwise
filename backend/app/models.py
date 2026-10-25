@@ -165,6 +165,10 @@ class Activity(Base):
     estimated_cost: Mapped[float | None] = mapped_column(
         Float, nullable=True
     )
+    # Minutes of travel from this stop to the next one that day.
+    travel_minutes_to_next: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
     latitude: Mapped[float | None] = mapped_column(
         Float, nullable=True
     )

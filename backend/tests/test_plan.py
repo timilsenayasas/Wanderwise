@@ -1,33 +1,284 @@
-"""F3 AI plan endpoint, with Gemini faked so no API key is needed."""
+"""F3/A1 trip plan: generate, save, reload, replace. Gemini is faked so no API key is needed."""
+
+import json
 
 from conftest import register
+from sqlalchemy import func, select
 
 from app.config import settings
+from app.database import get_db
+from app.main import app
+from app.models import Activity, CostItem, TripDay
+from app.plans import duration_minutes, end_time
 from app.services import llm
 
-VALID_TRIP_PLAN = {
+VALID_TRIP = {
     "origin": "Dallas, TX",
     "destination": "Chicago, IL",
     "start_date": "2026-10-10",
-    "end_date": "2026-10-12",
+    "end_date": "2026-10-11",
     "travelers": 2,
     "budget": 1200,
     "interests": ["food", "museums"],
 }
 
 
-def test_plan_trip_requires_login(client):
-    r = client.post("/api/trips/plan", json=VALID_TRIP_PLAN)
+def activity(name, category, cost, start="09:00", minutes=60, travel=0):
+    return {
+        "start_time": start,
+        "duration_minutes": minutes,
+        "name": name,
+        "category": category,
+        "location": f"{name} address",
+        "description": f"About {name}.",
+        "estimated_cost": cost,
+        "travel_time_to_next_minutes": travel,
+    }
 
-    assert r.status_code == 401
-    assert r.json()["detail"] == "Not authenticated"
 
-def test_plan_trip_without_api_key_returns_503(client, monkeypatch):
+FIRST_PLAN = {
+    "destination": "Chicago, IL",
+    "currency": "USD",
+    "total_estimated_cost": 97.0,
+    "days": [
+        {
+            "date": "2026-10-10",
+            "activities": [
+                activity("Art Institute", "sightseeing", 32, start="9:00", minutes=120, travel=15),
+                activity("Deep-dish lunch", "meal", 25, start="12:00"),
+            ],
+        },
+        {
+            "date": "2026-10-11",
+            "activities": [
+                activity("Lakefront walk", "nature", 0, start="10:00"),
+                activity("Jazz club", "Meal", 40, start="23:00", minutes=120),
+            ],
+        },
+    ],
+}
+
+SECOND_PLAN = {
+    "destination": "Chicago, IL",
+    "currency": "USD",
+    "total_estimated_cost": 30.0,
+    "days": [
+        {"date": "2026-10-10", "activities": [activity("Field Museum", "sightseeing", 30)]},
+        {"date": "2026-10-11", "activities": [activity("Hot dog stand", "meal", 0)]},
+    ],
+}
+
+
+class FakeGeminiResponse:
+    def __init__(self, text):
+        self.text = text
+        self.usage_metadata = None
+
+
+def use_fake_gemini(monkeypatch, *responses):
+    """Gemini returns these plans (dicts) or raw strings in order. Returns the prompts it received."""
+    remaining = iter(responses)
+    prompts = []
+
+    class FakeModels:
+        def generate_content(self, **kwargs):
+            prompts.append(kwargs["contents"])
+            response = next(remaining)
+            text = response if isinstance(response, str) else json.dumps(response)
+            return FakeGeminiResponse(text)
+
+    class FakeClient:
+        models = FakeModels()
+
+    monkeypatch.setattr(llm, "get_gemini_client", lambda: FakeClient())
+    llm.itinerary_cache.clear()
+    return prompts
+
+
+def count_rows(model) -> int:
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        return db.scalar(select(func.count()).select_from(model))
+    finally:
+        db.close()
+
+
+def plan_row_counts() -> tuple[int, int, int]:
+    return count_rows(TripDay), count_rows(Activity), count_rows(CostItem)
+
+
+def create_trip(client, **overrides) -> int:
+    return client.post("/api/trips", json={**VALID_TRIP, **overrides}).json()["id"]
+
+
+# --- Access ---------------------------------------------------------------
+def test_plan_requires_login(client):
+    assert client.get("/api/trips/1/plan").status_code == 401
+    assert client.post("/api/trips/1/plan").status_code == 401
+
+
+def test_another_users_plan_returns_404(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+    client.post(f"/api/trips/{trip_id}/plan")
+
+    client.post("/api/auth/logout")
+    register(client, email="second@example.com")
+
+    assert client.get(f"/api/trips/{trip_id}/plan").status_code == 404
+    assert client.post(f"/api/trips/{trip_id}/plan").status_code == 404
+    assert plan_row_counts() == (2, 4, 2)  # first user's plan untouched
+
+
+def test_missing_trip_returns_404(client):
     register(client)
 
-    monkeypatch.setattr(settings, "llm_api_key", "")
+    assert client.get("/api/trips/999/plan").status_code == 404
 
-    r = client.post("/api/trips/plan", json=VALID_TRIP_PLAN)
+
+# --- Save and reload ------------------------------------------------------
+def test_new_trip_has_no_plan(client):
+    register(client)
+    trip_id = create_trip(client)
+
+    r = client.get(f"/api/trips/{trip_id}/plan")
+
+    assert r.status_code == 200
+    assert r.json() is None
+
+
+def test_generate_saves_the_plan(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+
+    r = client.post(f"/api/trips/{trip_id}/plan")
+
+    assert r.status_code == 200
+    plan = r.json()
+    assert plan["trip_id"] == trip_id
+    assert plan["currency"] == "USD"
+    assert [day["day_number"] for day in plan["days"]] == [1, 2]
+    assert [day["date"] for day in plan["days"]] == ["2026-10-10", "2026-10-11"]
+
+    museum = plan["days"][0]["activities"][0]
+    assert museum["name"] == "Art Institute"
+    assert museum["start_time"] == "09:00"  # "9:00" normalised
+    assert museum["end_time"] == "11:00"
+    assert museum["duration_minutes"] == 120
+    assert museum["travel_time_to_next_minutes"] == 15
+    assert museum["location"] == "Art Institute address"
+    assert museum["latitude"] is None and museum["longitude"] is None
+
+    jazz = plan["days"][1]["activities"][1]
+    assert jazz["end_time"] == "01:00"  # wraps past midnight
+    assert jazz["duration_minutes"] == 120
+
+    assert plan_row_counts() == (2, 4, 2)
+
+
+def test_saved_plan_is_returned_after_reload(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+    generated = client.post(f"/api/trips/{trip_id}/plan").json()
+
+    r = client.get(f"/api/trips/{trip_id}/plan")
+
+    assert r.status_code == 200
+    assert r.json() == generated
+
+
+def test_cost_items_match_the_plan(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+
+    plan = client.post(f"/api/trips/{trip_id}/plan").json()
+
+    lines = {item["category"]: (item["amount"], item["description"]) for item in plan["cost_items"]}
+    # "Meal" and "meal" group together; nature cost $0 so it has no line.
+    assert lines == {"sightseeing": (32.0, "1 activity"), "meal": (65.0, "2 activities")}
+    assert plan["total_estimated_cost"] == 97.0
+
+
+# --- Replace --------------------------------------------------------------
+def test_regenerate_replaces_the_plan(client, monkeypatch):
+    prompts = use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+    client.post(f"/api/trips/{trip_id}/plan")
+
+    r = client.post(f"/api/trips/{trip_id}/plan")
+
+    assert r.status_code == 200
+    assert len(prompts) == 2  # asked Gemini again instead of reusing the cached plan
+    names = [a["name"] for day in r.json()["days"] for a in day["activities"]]
+    assert names == ["Field Museum", "Hot dog stand"]
+    assert plan_row_counts() == (2, 2, 1)
+    assert client.get(f"/api/trips/{trip_id}/plan").json() == r.json()
+
+
+def test_plans_for_two_trips_are_kept_apart(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
+    register(client)
+    first = create_trip(client)
+    second = create_trip(client, destination="Milwaukee, WI")
+    client.post(f"/api/trips/{first}/plan")
+    client.post(f"/api/trips/{second}/plan")
+
+    assert len(client.get(f"/api/trips/{first}/plan").json()["days"][0]["activities"]) == 2
+    assert len(client.get(f"/api/trips/{second}/plan").json()["days"][0]["activities"]) == 1
+
+
+def test_gemini_error_keeps_the_old_plan(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN, "this is not valid JSON")
+    register(client)
+    trip_id = create_trip(client)
+    saved = client.post(f"/api/trips/{trip_id}/plan").json()
+
+    r = client.post(f"/api/trips/{trip_id}/plan")
+
+    assert r.status_code == 503
+    assert r.json()["detail"] == {
+        "message": "The itinerary service returned invalid data. Please retry.",
+        "retry": True,
+    }
+    assert client.get(f"/api/trips/{trip_id}/plan").json() == saved
+
+
+def test_deleting_a_trip_deletes_its_plan(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+    client.post(f"/api/trips/{trip_id}/plan")
+
+    client.delete(f"/api/trips/{trip_id}")
+
+    assert plan_row_counts() == (0, 0, 0)
+
+
+# --- Errors ---------------------------------------------------------------
+def test_trip_without_budget_or_interests_returns_422(client, monkeypatch):
+    prompts = use_fake_gemini(monkeypatch)
+    register(client)
+    trip_id = create_trip(client, budget=None, interests=[])
+
+    r = client.post(f"/api/trips/{trip_id}/plan")
+
+    assert r.status_code == 422
+    assert r.json()["detail"] == "Add a budget and at least one interest to this trip to generate a plan."
+    assert prompts == []
+
+
+def test_without_api_key_returns_503(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    llm.itinerary_cache.clear()
+
+    r = client.post(f"/api/trips/{trip_id}/plan")
 
     assert r.status_code == 503
     assert r.json()["detail"] == {
@@ -35,95 +286,42 @@ def test_plan_trip_without_api_key_returns_503(client, monkeypatch):
         "retry": False,
     }
 
-class FakeGeminiResponse:
-    def __init__(self, text):
-        self.text = text
-        self.usage_metadata = None
 
-def test_plan_trip_success(client, monkeypatch):
+def test_gemini_service_error_returns_503(client, monkeypatch):
     register(client)
+    trip_id = create_trip(client)
 
-    fake_response = FakeGeminiResponse(
-        """
-        {
-            "destination": "Chicago, IL",
-            "currency": "USD",
-            "total_estimated_cost": 250.00,
-            "days": [
-                {
-                    "date": "2026-10-10",
-                    "activities": [
-                        {
-                            "start_time": "09:00",
-                            "duration_minutes": 120,
-                            "name": "Visit the Art Institute",
-                            "category": "sightseeing",
-                            "location": "Art Institute of Chicago",
-                            "description": "Explore the museum.",
-                            "estimated_cost": 32.00,
-                            "travel_time_to_next_minutes": 15
-                        }
-                    ]
-                }
-            ]
-        }
-        """
-    )
-
-    class FakeModels:
-        def generate_content(self, **kwargs):
-            return fake_response
-
-    class FakeClient:
-        models = FakeModels()
-
-    monkeypatch.setattr(llm, "get_gemini_client", lambda: FakeClient())
-    llm.itinerary_cache.clear()
-
-    r = client.post("/api/trips/plan", json=VALID_TRIP_PLAN)
-
-    assert r.status_code == 200
-    assert r.json()["destination"] == "Chicago, IL"
-    assert r.json()["currency"] == "USD"
-    assert r.json()["total_estimated_cost"] == 250.0
-
-def test_plan_trip_gemini_error(client, monkeypatch):
-    register(client)
-
-    def fake_generate(_trip):
-        raise llm.LLMServiceError(
-            "The itinerary service is temporarily unavailable. Please retry."
-        )
+    def fake_generate(_trip, use_cache=True):
+        raise llm.LLMServiceError("The itinerary service is temporarily unavailable. Please retry.")
 
     monkeypatch.setattr(llm, "generate_itinerary", fake_generate)
 
-    r = client.post("/api/trips/plan", json=VALID_TRIP_PLAN)
+    r = client.post(f"/api/trips/{trip_id}/plan")
 
     assert r.status_code == 503
-    assert r.json()["detail"] == {
-        "message": "The itinerary service is temporarily unavailable. Please retry.",
-        "retry": True,
+    assert r.json()["detail"]["retry"] is True
+    assert plan_row_counts() == (0, 0, 0)
+
+
+def test_bad_start_time_is_rejected(client, monkeypatch):
+    bad_plan = {
+        **SECOND_PLAN,
+        "days": [{"date": "2026-10-10", "activities": [activity("Brunch", "meal", 20, start="9am")]}],
     }
-
-def test_plan_trip_invalid_json(client, monkeypatch):
+    use_fake_gemini(monkeypatch, bad_plan)
     register(client)
+    trip_id = create_trip(client)
 
-    fake_response = FakeGeminiResponse("this is not valid JSON")
-
-    class FakeModels:
-        def generate_content(self, **kwargs):
-            return fake_response
-
-    class FakeClient:
-        models = FakeModels()
-
-    monkeypatch.setattr(llm, "get_gemini_client", lambda: FakeClient())
-    llm.itinerary_cache.clear()
-
-    r = client.post("/api/trips/plan", json=VALID_TRIP_PLAN)
+    r = client.post(f"/api/trips/{trip_id}/plan")
 
     assert r.status_code == 503
-    assert r.json()["detail"] == {
-        "message": "The itinerary service returned invalid data. Please retry.",
-        "retry": True,
-    } 
+    assert r.json()["detail"]["message"] == "The itinerary service returned an invalid itinerary. Please retry."
+    assert plan_row_counts() == (0, 0, 0)
+
+
+# --- Time helpers ---------------------------------------------------------
+def test_end_time_and_duration_round_trip():
+    assert end_time("09:00", 90) == "10:30"
+    assert end_time("22:30", 120) == "00:30"
+    assert duration_minutes("22:30", "00:30") == 120
+    assert duration_minutes("08:00", "08:00") == 24 * 60

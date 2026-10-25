@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.database import DbSession
 from app.models import Trip, User
+from app.plans import clear_plan
 from app.schemas import TripIn, TripOut
 from app.security import CurrentUser
 
@@ -86,5 +87,7 @@ def update_trip(trip_id: int, body: TripIn, user: CurrentUser, db: DbSession) ->
 @router.delete("/{trip_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_trip(trip_id: int, user: CurrentUser, db: DbSession) -> None:
     trip = get_own_trip(trip_id, user, db)
+    # SQLite can reuse a deleted trip's id, so its plan must not be left behind.
+    clear_plan(trip, db)
     db.delete(trip)
     db.commit()
