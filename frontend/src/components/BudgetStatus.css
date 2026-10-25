@@ -42,6 +42,7 @@
 }
 
 .budget-status__message p {
+  min-width: 0; /* wrap beside the icon on narrow screens */
   margin: 0;
 }
 
