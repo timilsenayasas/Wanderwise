@@ -111,11 +111,11 @@ def create_trip(client, **overrides) -> int:
     return client.post("/api/trips", json={**VALID_TRIP, **overrides}).json()["id"]
 
 
-def add_user_line(trip_id: int, category="lodging", amount=300.0) -> None:
+def add_user_line(trip_id: int, category="lodging", amount=300.0, trip_date=None) -> None:
     """A traveler's own cost line, written straight to the database."""
     db = next(app.dependency_overrides[get_db]())
     try:
-        db.add(CostItem(trip_id=trip_id, source="user", category=category, amount=amount))
+        db.add(CostItem(trip_id=trip_id, source="user", category=category, amount=amount, trip_date=trip_date))
         db.commit()
     finally:
         db.close()

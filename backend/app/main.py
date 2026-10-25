@@ -7,6 +7,7 @@ Where things live:
   models.py        database tables  (change one -> create a migration, see README)
   schemas.py       request/response shapes (the API contract)
   plans.py         save/load a trip's generated plan (trip_days, activities, cost_items)
+  budget.py        budget categories and a trip's cost totals
   security.py      passwords, JWT cookie, CurrentUser
   services/        outside integrations (Gemini; later maps, weather)
   routers/         one file per feature: endpoints only
@@ -21,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db_migrate import upgrade_database
-from app.routers import auth, plan, preferences, trips
+from app.routers import auth, budget, plan, preferences, trips
 
 
 @asynccontextmanager
@@ -50,3 +51,4 @@ app.include_router(auth.router)
 app.include_router(preferences.router)
 app.include_router(trips.router)
 app.include_router(plan.router)
+app.include_router(budget.router)

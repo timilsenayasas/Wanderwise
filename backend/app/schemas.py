@@ -179,3 +179,32 @@ class SavedPlanOut(BaseModel):
     total_estimated_cost: float
     days: list[SavedDay]
     cost_items: list[CostItemOut]
+
+
+# --- Budget (A2) ----------------------------------------------------------
+class CategoryTotal(BaseModel):
+    category: BudgetCategory
+    amount: float
+
+
+class DayTotal(BaseModel):
+    day_number: int
+    date: date
+    amount: float
+
+
+class BudgetOut(BaseModel):
+    """Worked out from the trip's cost lines, not the AI's own total."""
+
+    trip_id: int
+    currency: str
+    # Every amount is an estimate (the AI's or the traveler's), not a quoted price.
+    estimated: bool
+    categories: list[CategoryTotal]  # every budget category, in order; they add up to total
+    per_day: list[DayTotal]  # the saved plan's days; empty without a plan
+    not_by_day: float  # user lines not on a plan day; sum(per_day) + not_by_day == total
+    total: float
+    budget: float | None
+    remaining: float | None  # budget - total; negative when over budget
+    over_budget: bool | None
+    items: list[CostItemOut]
