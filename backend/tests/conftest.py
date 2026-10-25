@@ -16,6 +16,8 @@ import pytest
 os.environ["DATABASE_URL"] = f"sqlite:///{Path(tempfile.mkdtemp()) / 'startup.db'}"
 os.environ["JWT_SECRET"] = "test-secret-not-for-production-use-only"
 os.environ["COOKIE_SECURE"] = "false"
+# Ignore any real key in backend/.env, so tests never make billed Geocoding calls.
+os.environ["MAPS_API_KEY"] = ""
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -24,8 +26,20 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.services import geocoding  # noqa: E402
 
 VALID_USER = {"email": "Ada@Example.com", "password": "correct-horse-battery", "name": "Ada"}
+
+
+@pytest.fixture(autouse=True)
+def no_real_geocoding(monkeypatch):
+    """A test that reaches Google fails. Tests that need lookups swap in a fake _fetch."""
+
+    def refuse(query):
+        # pytest.fail, not assert: geocode() swallows ordinary exceptions, but not this one.
+        pytest.fail(f"Test tried to call the real Geocoding API for {query!r}")
+
+    monkeypatch.setattr(geocoding, "_fetch", refuse)
 
 
 @pytest.fixture()
