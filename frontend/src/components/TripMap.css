@@ -1,0 +1,119 @@
+.trip-map {
+  display: grid;
+  gap: var(--space-5);
+}
+
+.trip-map h2 {
+  margin: 0;
+}
+
+.trip-map__map {
+  height: clamp(300px, 55vh, 520px);
+  overflow: hidden;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-lg);
+  background: var(--color-bg-deep); /* shown while the tiles load */
+}
+
+/* ---- Markers ---- */
+.trip-map__pin {
+  display: inline-grid;
+  place-items: center;
+  min-width: 2rem;
+  height: 2rem;
+  padding: 0 var(--space-2);
+  border: 2px solid var(--color-surface);
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--color-on-dark);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  box-shadow: var(--shadow-md);
+}
+
+.trip-map__pin--selected {
+  background: var(--color-accent-strong);
+  transform: scale(1.15);
+}
+
+/* ---- Info window (Google draws the box; this is the text inside it) ---- */
+.trip-map__info-title {
+  color: var(--color-primary);
+  font-size: var(--text-base);
+}
+
+.trip-map__info {
+  margin: 0;
+  color: var(--color-text);
+  font-size: var(--text-sm);
+}
+
+.trip-map__info--muted {
+  margin-top: var(--space-1);
+  color: var(--color-text-muted);
+}
+
+/* ---- Stop list ---- */
+.trip-map__stops {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.trip-map__stop {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  width: 100%;
+  min-height: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: 1.5px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  text-align: left;
+  cursor: pointer;
+  transition: border-color var(--duration-fast) ease, background var(--duration-fast) ease;
+}
+
+.trip-map__stop:hover {
+  border-color: var(--color-primary);
+}
+
+.trip-map__stop[aria-pressed='true'] {
+  border-color: var(--color-primary);
+  background: var(--color-primary-soft);
+}
+
+.trip-map__stop-number {
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  min-width: 2rem;
+  height: 2rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary);
+  color: var(--color-on-dark);
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.trip-map__stop[aria-pressed='true'] .trip-map__stop-number {
+  background: var(--color-accent-strong);
+}
+
+.trip-map__stop-text {
+  display: grid;
+  min-width: 0;
+}
+
+.trip-map__stop-name {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.trip-map__stop-when {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}

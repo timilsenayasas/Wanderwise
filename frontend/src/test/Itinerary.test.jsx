@@ -6,6 +6,8 @@ import { api, ApiError } from '../api/client';
 import Itinerary from '../pages/Itinerary';
 import { budgetResponse, emptyBudget } from './budgetFixtures';
 
+vi.mock('@vis.gl/react-google-maps', () => import('./mockGoogleMaps'));
+
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal();
   return { ...actual, api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } };
@@ -216,10 +218,12 @@ describe('Trip page tabs', () => {
     renderTrip();
     const itinerary = await screen.findByRole('tab', { name: 'Itinerary' });
     const budget = screen.getByRole('tab', { name: 'Budget' });
+    const map = screen.getByRole('tab', { name: 'Map' });
 
     // Only the selected tab is in the Tab order.
     expect(itinerary).toHaveAttribute('tabindex', '0');
     expect(budget).toHaveAttribute('tabindex', '-1');
+    expect(map).toHaveAttribute('tabindex', '-1');
 
     itinerary.focus();
     await userEvent.keyboard('{ArrowRight}');
@@ -227,16 +231,18 @@ describe('Trip page tabs', () => {
     expect(budget).toHaveAttribute('aria-selected', 'true');
     expect(budget).toHaveAttribute('tabindex', '0');
 
+    await userEvent.keyboard('{ArrowRight}');
+    expect(map).toHaveFocus();
     await userEvent.keyboard('{ArrowRight}'); // wraps around
     expect(itinerary).toHaveFocus();
     expect(itinerary).toHaveAttribute('aria-selected', 'true');
 
     await userEvent.keyboard('{End}');
-    expect(budget).toHaveFocus();
+    expect(map).toHaveFocus();
     await userEvent.keyboard('{Home}');
     expect(itinerary).toHaveFocus();
-    await userEvent.keyboard('{ArrowLeft}');
-    expect(budget).toHaveFocus();
+    await userEvent.keyboard('{ArrowLeft}'); // wraps the other way
+    expect(map).toHaveFocus();
   });
 
   it('opens the Budget tab from ?tab=budget', async () => {
@@ -259,6 +265,22 @@ describe('Trip page tabs', () => {
     expect(itinerary).toHaveFocus();
     expect(screen.getByRole('button', { name: /generate ai itinerary/i })).toBeVisible();
     expect(screen.getByTestId('search')).toBeEmptyDOMElement();
+  });
+
+  it('opens the Map tab from ?tab=map', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip(undefined, '?tab=map');
+
+    expect(await screen.findByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Map' })).toBeVisible();
+    expect(api.get).not.toHaveBeenCalledWith('/trips/7/budget');
+  });
+
+  it('ignores an unknown ?tab= and opens the Itinerary tab', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip(undefined, '?tab=nope');
+
+    expect(await screen.findByRole('tab', { name: 'Itinerary' })).toHaveAttribute('aria-selected', 'true');
   });
 
   it('keeps ?tab= when clearing the New Trip flag', async () => {
