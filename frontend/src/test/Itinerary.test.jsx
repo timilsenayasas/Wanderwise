@@ -1,10 +1,11 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
 import Itinerary from '../pages/Itinerary';
 import { budgetResponse, emptyBudget } from './budgetFixtures';
+import { googleMaps, resetGoogleMaps } from './mockGoogleMaps';
 
 vi.mock('@vis.gl/react-google-maps', () => import('./mockGoogleMaps'));
 
@@ -56,6 +57,13 @@ function savedPlan(...names) {
   };
 }
 
+/** A saved plan whose activity has map coordinates (A12). */
+function locatedPlan() {
+  const plan = savedPlan('Art Institute of Chicago');
+  plan.days[0].activities[0] = { ...plan.days[0].activities[0], latitude: 41.8796, longitude: -87.6237 };
+  return plan;
+}
+
 /** GET /trips/7 returns TRIP; /plan returns `plan` (null = none saved yet); /budget a budget. */
 function mockLoad(plan, trip = TRIP, budget = budgetResponse()) {
   api.get.mockImplementation((path) => {
@@ -95,6 +103,12 @@ function renderTrip(state, search = '') {
 
 beforeEach(() => {
   Object.values(api).forEach((fn) => fn.mockReset());
+  resetGoogleMaps();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe('Trip page plan', () => {
@@ -274,6 +288,34 @@ describe('Trip page tabs', () => {
     expect(await screen.findByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tabpanel', { name: 'Map' })).toBeVisible();
     expect(api.get).not.toHaveBeenCalledWith('/trips/7/budget');
+  });
+
+  it('keeps the other tabs working when the map fails to load', async () => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_KEY', 'test-browser-key');
+    googleMaps.status = 'FAILED';
+    mockLoad(locatedPlan());
+    renderTrip(undefined, '?tab=map');
+
+    expect(await screen.findByText(/the map can't load right now/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Budget' }));
+    expect(await screen.findByRole('heading', { name: 'Budget' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+    expect(screen.getByText('Art Institute of Chicago')).toBeVisible();
+  });
+
+  it('keeps the page working when the map crashes', async () => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_KEY', 'test-browser-key');
+    vi.spyOn(console, 'error').mockImplementation(() => {}); // React logs the caught error
+    googleMaps.crash = true;
+    mockLoad(locatedPlan());
+    renderTrip(undefined, '?tab=map');
+
+    expect(await screen.findByText(/the rest of your trip still works/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+    expect(screen.getByText('Art Institute of Chicago')).toBeVisible();
+    expect(screen.getByRole('button', { name: /regenerate/i })).toBeInTheDocument();
   });
 
   it('ignores an unknown ?tab= and opens the Itinerary tab', async () => {

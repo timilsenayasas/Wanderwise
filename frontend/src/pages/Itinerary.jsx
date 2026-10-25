@@ -11,6 +11,7 @@ import BudgetTab from '../components/BudgetTab';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
+import ErrorBoundary from '../components/ErrorBoundary';
 import ItineraryView from '../components/ItineraryView';
 import Spinner from '../components/Spinner';
 import Tabs, { TabPanel, tabId } from '../components/Tabs';
@@ -266,9 +267,18 @@ export default function Itinerary() {
         <TabPanel idPrefix="trip" id="map" selected={tab}>
           {/* Mounted only while open: Google bills per map load, so the map loads only when asked for. */}
           {tab === 'map' && (
-            <Suspense fallback={<Spinner size="lg" label="Loading the map" />}>
-              <TripMap plan={plan} onShowItinerary={showItinerary} />
-            </Suspense>
+            // If the map code fails to download or crashes, only this tab says so; reopening it retries.
+            <ErrorBoundary
+              fallback={
+                <Card padding="lg">
+                  <p role="status">The map can&apos;t load right now. The rest of your trip still works.</p>
+                </Card>
+              }
+            >
+              <Suspense fallback={<Spinner size="lg" label="Loading the map" />}>
+                <TripMap plan={plan} onShowItinerary={showItinerary} />
+              </Suspense>
+            </ErrorBoundary>
           )}
         </TabPanel>
       </div>

@@ -6,7 +6,19 @@
  * get everything the markers show.
  */
 import { useEffect, useMemo, useState } from 'react';
-import { APIProvider, AdvancedMarker, InfoWindow, Map, useMap } from '@vis.gl/react-google-maps';
+import {
+  APIProvider,
+  APILoadingStatus,
+  AdvancedMarker,
+  InfoWindow,
+  Map,
+  useApiLoadingStatus,
+  useMap,
+} from '@vis.gl/react-google-maps';
+import Button from './Button';
+import Card from './Card';
+import EmptyState from './EmptyState';
+import Icon from './Icon';
 import { formatShortDay } from '../lib/format';
 import './TripMap.css';
 
@@ -36,7 +48,7 @@ function stopWhen(stop) {
   return `Day ${stop.dayNumber} · ${formatShortDay(stop.date)} · ${stop.startTime}–${stop.endTime}`;
 }
 
-export default function TripMap({ plan }) {
+export default function TripMap({ plan, onShowItinerary }) {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY;
   const mapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || 'DEMO_MAP_ID';
   const stops = useMemo(() => (plan ? mapStops(plan) : []), [plan]);
@@ -44,17 +56,64 @@ export default function TripMap({ plan }) {
   const selected = stops.find((stop) => stop.id === selectedId) ?? null;
 
   if (stops.length === 0) {
-    return <p className="text-muted">No map locations for this plan yet.</p>;
+    return (
+      <section className="trip-map" aria-labelledby="map-title">
+        <h2 id="map-title">Map</h2>
+        <Card padding="lg">
+          <EmptyState
+            headingLevel={3}
+            title={plan ? 'No map locations for this plan yet' : 'No plan yet'}
+            description={
+              plan
+                ? 'Regenerate the plan on the Itinerary tab to add its stops to the map.'
+                : 'Generate a plan on the Itinerary tab to see its stops on a map.'
+            }
+            action={<Button onClick={onShowItinerary}>Go to itinerary</Button>}
+          />
+        </Card>
+      </section>
+    );
   }
 
   return (
     <section className="trip-map" aria-labelledby="map-title">
       <h2 id="map-title">Map</h2>
-      <APIProvider apiKey={apiKey}>
-        <MapView stops={stops} selected={selected} onSelect={setSelectedId} mapId={mapId} />
-      </APIProvider>
+      {/* No key: say so instead of loading a map that can only show an error. */}
+      {apiKey ? (
+        <APIProvider apiKey={apiKey}>
+          <MapOrFallback stops={stops} selected={selected} onSelect={setSelectedId} mapId={mapId} />
+        </APIProvider>
+      ) : (
+        <MapUnavailable reason="VITE_GOOGLE_MAPS_KEY isn't set in frontend/.env." />
+      )}
       <StopList stops={stops} selectedId={selectedId} onSelect={setSelectedId} />
     </section>
+  );
+}
+
+/** The map, or a message if the Google script failed to load or rejected the key. */
+function MapOrFallback(props) {
+  const status = useApiLoadingStatus();
+  if (status === APILoadingStatus.FAILED) {
+    return <MapUnavailable reason="The Google Maps script failed to load." />;
+  }
+  if (status === APILoadingStatus.AUTH_FAILURE) {
+    return <MapUnavailable reason="Google rejected the browser key (check its website and API restrictions)." />;
+  }
+  return <MapView {...props} />;
+}
+
+/** The stop list below still works, so the tab stays useful without the map. */
+export function MapUnavailable({ reason }) {
+  return (
+    <div className="trip-map__unavailable" role="status">
+      <Icon name="map" />
+      <p>
+        The map can&apos;t load right now. Your stops are listed below.
+        {/* Only in development, for whoever is setting up the keys. */}
+        {import.meta.env.DEV && reason && <span className="trip-map__dev-hint"> {reason}</span>}
+      </p>
+    </div>
   );
 }
 

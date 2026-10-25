@@ -13,7 +13,8 @@ export const APILoadingStatus = {
   AUTH_FAILURE: 'AUTH_FAILURE',
 };
 
-export const googleMaps = { status: APILoadingStatus.LOADED, map: null, onError: null };
+// crash: useMap() throws, like a map that breaks while rendering.
+export const googleMaps = { status: APILoadingStatus.LOADED, map: null, onError: null, crash: false };
 
 /** A fake google.maps.Map, plus the LatLngBounds class FitToStops builds. */
 export function fakeMap() {
@@ -36,6 +37,7 @@ export function resetGoogleMaps() {
   googleMaps.status = APILoadingStatus.LOADED;
   googleMaps.map = null;
   googleMaps.onError = null;
+  googleMaps.crash = false;
   delete window.google;
 }
 
@@ -76,5 +78,8 @@ export function InfoWindow({ headerContent, children, onCloseClick }) {
   );
 }
 
-export const useMap = () => googleMaps.map;
+export function useMap() {
+  if (googleMaps.crash) throw new Error('The map crashed');
+  return googleMaps.map;
+}
 export const useApiLoadingStatus = () => googleMaps.status;

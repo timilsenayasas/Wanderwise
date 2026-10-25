@@ -117,3 +117,30 @@
   font-size: var(--text-sm);
   color: var(--color-text-muted);
 }
+
+/* ---- When the map can't load ---- */
+.trip-map__unavailable {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-4);
+  border: 1px solid var(--color-border);
+  border-left: 4px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-bg-deep);
+}
+
+.trip-map__unavailable p {
+  min-width: 0;
+  margin: 0;
+}
+
+.trip-map__unavailable .icon {
+  flex-shrink: 0;
+  color: var(--color-text-muted);
+}
+
+.trip-map__dev-hint {
+  color: var(--color-text-muted);
+  font-size: var(--text-sm);
+}

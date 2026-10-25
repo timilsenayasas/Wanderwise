@@ -2,7 +2,7 @@ import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import TripMap from '../components/TripMap';
-import { fakeMap, resetGoogleMaps } from './mockGoogleMaps';
+import { fakeMap, googleMaps, resetGoogleMaps } from './mockGoogleMaps';
 
 vi.mock('@vis.gl/react-google-maps', () => import('./mockGoogleMaps'));
 
@@ -150,5 +150,49 @@ describe('Trip map', () => {
 
     expect(jazz).toHaveAttribute('aria-pressed', 'false');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('Trip map fallbacks', () => {
+  it('points to generating a plan when there is none', async () => {
+    const onShowItinerary = vi.fn();
+    render(<TripMap plan={null} onShowItinerary={onShowItinerary} />);
+
+    expect(screen.getByRole('heading', { name: 'No plan yet' })).toBeInTheDocument();
+    expect(screen.queryByTestId('maps-api')).not.toBeInTheDocument(); // nothing billable loads
+
+    await userEvent.click(screen.getByRole('button', { name: /go to itinerary/i }));
+
+    expect(onShowItinerary).toHaveBeenCalledTimes(1);
+  });
+
+  it('says so when no activity has a location yet', () => {
+    const unlocated = { ...PLAN, days: [{ ...PLAN.days[0], activities: [PLAN.days[0].activities[1]] }] };
+    render(<TripMap plan={unlocated} onShowItinerary={vi.fn()} />);
+
+    expect(screen.getByRole('heading', { name: 'No map locations for this plan yet' })).toBeInTheDocument();
+    expect(screen.getByText(/regenerate the plan/i)).toBeInTheDocument();
+    expect(screen.queryByTestId('maps-api')).not.toBeInTheDocument();
+  });
+
+  it('shows a message without a browser key, and still lists the stops', () => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_KEY', '');
+    render(<TripMap plan={PLAN} />);
+
+    expect(screen.getByRole('status')).toHaveTextContent(/the map can't load right now/i);
+    expect(screen.queryByTestId('maps-api')).not.toBeInTheDocument();
+    expect(stopList().getAllByRole('button')).toHaveLength(3);
+  });
+
+  it.each([
+    ['the script fails to load', 'FAILED'],
+    ['Google rejects the key', 'AUTH_FAILURE'],
+  ])('shows a message when %s, and still lists the stops', (_, status) => {
+    googleMaps.status = status;
+    render(<TripMap plan={PLAN} />);
+
+    expect(screen.getByRole('status')).toHaveTextContent(/the map can't load right now/i);
+    expect(screen.queryByTestId('google-map')).not.toBeInTheDocument();
+    expect(stopList().getAllByRole('button')).toHaveLength(3);
   });
 });
