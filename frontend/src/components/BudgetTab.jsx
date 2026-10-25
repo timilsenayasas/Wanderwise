@@ -5,10 +5,11 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
+import BudgetBreakdown from './BudgetBreakdown';
+import BudgetStatus from './BudgetStatus';
 import Button from './Button';
 import Card from './Card';
 import Spinner from './Spinner';
-import { formatCurrency } from '../lib/format';
 import './BudgetTab.css';
 
 export default function BudgetTab({ trip }) {
@@ -66,7 +67,8 @@ export default function BudgetTab({ trip }) {
   return (
     <section className="budget-tab" aria-labelledby="budget-title">
       <h2 id="budget-title">Budget</h2>
-      <p>Estimated total {formatCurrency(budget.total)}</p>
+      <BudgetStatus budget={budget} />
+      <BudgetBreakdown budget={budget} />
     </section>
   );
 }

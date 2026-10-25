@@ -1,0 +1,31 @@
+.budget-status {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.budget-status__total {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.budget-status__label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.budget-status__amount {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-status__note {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}

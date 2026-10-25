@@ -1,0 +1,95 @@
+.budget-breakdown {
+  display: grid;
+  gap: var(--space-5);
+}
+
+@media (min-width: 768px) {
+  .budget-breakdown {
+    grid-template-columns: 1fr 1fr;
+    align-items: start;
+  }
+}
+
+.budget-breakdown h3 {
+  margin: 0 0 var(--space-4);
+}
+
+.budget-breakdown p {
+  margin: 0 0 var(--space-3);
+}
+
+/* ---- By category ---- */
+.budget-breakdown__categories {
+  display: grid;
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.budget-breakdown__category {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: var(--space-2) var(--space-3);
+  align-items: baseline;
+}
+
+.budget-breakdown__name {
+  font-weight: 600;
+}
+
+.budget-breakdown__amount {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.budget-breakdown__share {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.budget-breakdown__bar {
+  grid-column: 1 / -1;
+  height: var(--space-2);
+  border-radius: var(--radius-pill);
+  background: var(--color-primary-soft);
+  overflow: hidden;
+}
+
+.budget-breakdown__bar > span {
+  display: block;
+  width: var(--share);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--color-primary);
+}
+
+/* ---- By day ---- */
+.budget-breakdown__days {
+  width: 100%;
+  border-collapse: collapse;
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-breakdown__days th,
+.budget-breakdown__days td {
+  padding: var(--space-3) 0;
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+  font-weight: 500;
+}
+
+.budget-breakdown__days td {
+  padding-left: var(--space-3);
+  text-align: right;
+  font-weight: 600;
+}
+
+.budget-breakdown__days tfoot th,
+.budget-breakdown__days tfoot td {
+  border-top: 2px solid var(--color-border-strong);
+  border-bottom: 0;
+  font-weight: 700;
+  color: var(--color-primary);
+}

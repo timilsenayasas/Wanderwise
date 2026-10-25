@@ -10,6 +10,11 @@ export function formatDateRange(start, end) {
   return start === end ? endText : `${startText} – ${endText}`;
 }
 
+/** "Thu, Nov 5". Parsed as local midnight so the date doesn't shift by timezone. */
+export function formatShortDay(isoDate) {
+  return new Date(`${isoDate}T00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 /** Number of days in a trip, counting both ends. */
 export function tripLength(start, end) {
   const ms = new Date(`${end}T00:00`) - new Date(`${start}T00:00`);
