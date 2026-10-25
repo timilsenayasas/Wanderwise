@@ -161,6 +161,26 @@ class SavedDay(BaseModel):
 BudgetCategory = Literal["food", "activities", "transport", "lodging", "other"]
 
 
+class CostItemIn(BaseModel):
+    """A traveler's own cost line. Plan lines come only from generating a plan."""
+
+    category: BudgetCategory
+    amount: float = Field(ge=0, allow_inf_nan=False)
+    description: str | None = Field(default=None, max_length=200)
+    trip_date: date | None = None  # must fall within the trip's dates (checked in the router)
+
+    @field_validator("amount")
+    @classmethod
+    def whole_cents(cls, v: float) -> float:
+        # Stored amounts are whole cents, so budget totals add up exactly.
+        return round(v, 2)
+
+    @field_validator("description")
+    @classmethod
+    def blank_is_none(cls, v: str | None) -> str | None:
+        return (v or "").strip() or None
+
+
 class CostItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 

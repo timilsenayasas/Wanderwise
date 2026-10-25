@@ -205,3 +205,171 @@ def test_trip_with_no_budget(client):
     assert budget["budget"] is None
     assert budget["remaining"] is None
     assert budget["over_budget"] is None
+
+
+# --- The traveler's own cost lines ----------------------------------------
+HOTEL = {"category": "lodging", "amount": 450, "description": "Hotel, 2 nights", "trip_date": "2026-10-10"}
+
+
+def add_line(client, trip_id: int, **overrides):
+    return client.post(f"/api/trips/{trip_id}/cost-items", json={**HOTEL, **overrides})
+
+
+def plan_line_id(client, trip_id: int) -> int:
+    return next(item["id"] for item in get_budget(client, trip_id)["items"] if item["source"] == "plan")
+
+
+def test_add_a_cost_line(client):
+    register(client)
+    trip_id = create_trip(client)
+
+    r = add_line(client, trip_id)
+
+    assert r.status_code == 201
+    line = r.json()
+    assert line == {
+        "id": line["id"],
+        "category": "lodging",
+        "description": "Hotel, 2 nights",
+        "amount": 450.0,
+        "source": "user",
+        "trip_date": "2026-10-10",
+    }
+    assert get_budget(client, trip_id)["items"] == [line]
+
+
+def test_new_line_needs_only_category_and_amount(client):
+    register(client)
+    trip_id = create_trip(client)
+
+    r = client.post(f"/api/trips/{trip_id}/cost-items", json={"category": "other", "amount": 12.3456, "description": "  "})
+
+    assert r.status_code == 201
+    assert r.json()["amount"] == 12.35  # rounded to cents
+    assert r.json()["description"] is None
+    assert r.json()["trip_date"] is None
+
+
+def test_edit_a_cost_line(client):
+    register(client)
+    trip_id = create_trip(client)
+    line_id = add_line(client, trip_id).json()["id"]
+
+    r = client.put(
+        f"/api/trips/{trip_id}/cost-items/{line_id}",
+        json={"category": "transport", "amount": 60, "description": "Train", "trip_date": None},
+    )
+
+    assert r.status_code == 200
+    assert r.json() == {
+        "id": line_id,
+        "category": "transport",
+        "description": "Train",
+        "amount": 60.0,
+        "source": "user",
+        "trip_date": None,
+    }
+    assert by_category(get_budget(client, trip_id))["transport"] == 60.0
+
+
+def test_delete_a_cost_line(client):
+    register(client)
+    trip_id = create_trip(client)
+    line_id = add_line(client, trip_id).json()["id"]
+
+    r = client.delete(f"/api/trips/{trip_id}/cost-items/{line_id}")
+
+    assert r.status_code == 204
+    assert get_budget(client, trip_id)["items"] == []
+    assert client.delete(f"/api/trips/{trip_id}/cost-items/{line_id}").status_code == 404
+
+
+def test_plan_lines_cannot_be_edited_or_deleted(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+    client.post(f"/api/trips/{trip_id}/plan")
+    before = get_budget(client, trip_id)
+    line_id = plan_line_id(client, trip_id)
+
+    put = client.put(f"/api/trips/{trip_id}/cost-items/{line_id}", json=HOTEL)
+    delete = client.delete(f"/api/trips/{trip_id}/cost-items/{line_id}")
+
+    assert put.status_code == 403
+    assert delete.status_code == 403
+    assert put.json()["detail"] == "Plan cost lines are read-only. Regenerate the plan to change them."
+    assert get_budget(client, trip_id) == before
+
+
+def test_regenerate_keeps_lines_added_through_the_api(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+    client.post(f"/api/trips/{trip_id}/plan")
+    line = add_line(client, trip_id).json()
+
+    client.post(f"/api/trips/{trip_id}/plan")
+
+    budget = get_budget(client, trip_id)
+    assert line in budget["items"]
+    assert budget["total"] == 547.0  # 97 plan + 450 hotel
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        {"category": "souvenirs"},
+        {"category": "Food"},  # categories are exact
+        {"category": None},
+        {"amount": -1},
+        {"amount": "lots"},
+        {"description": "x" * 201},
+        {"trip_date": "not-a-date"},
+    ],
+)
+def test_bad_cost_line_returns_422(client, bad):
+    register(client)
+    trip_id = create_trip(client)
+
+    assert add_line(client, trip_id, **bad).status_code == 422
+    assert get_budget(client, trip_id)["items"] == []
+
+
+def test_line_date_outside_the_trip_returns_422(client):
+    register(client)
+    trip_id = create_trip(client)  # 2026-10-10 to 2026-10-11
+    line_id = add_line(client, trip_id).json()["id"]
+
+    assert add_line(client, trip_id, trip_date="2026-10-12").status_code == 422
+    r = client.put(f"/api/trips/{trip_id}/cost-items/{line_id}", json={**HOTEL, "trip_date": "2026-10-09"})
+    assert r.status_code == 422
+    assert r.json()["detail"] == "The date must be within the trip's dates."
+
+
+def test_line_from_another_trip_returns_404(client):
+    register(client)
+    first = create_trip(client)
+    second = create_trip(client, destination="Milwaukee, WI")
+    line_id = add_line(client, second).json()["id"]
+
+    assert client.put(f"/api/trips/{first}/cost-items/{line_id}", json=HOTEL).status_code == 404
+    assert client.delete(f"/api/trips/{first}/cost-items/{line_id}").status_code == 404
+    assert len(get_budget(client, second)["items"]) == 1
+
+
+def test_another_users_cost_lines_return_404(client):
+    register(client)
+    trip_id = create_trip(client)
+    line_id = add_line(client, trip_id).json()["id"]
+    client.post("/api/auth/logout")
+    register(client, email="second@example.com")
+
+    assert add_line(client, trip_id).status_code == 404
+    assert client.put(f"/api/trips/{trip_id}/cost-items/{line_id}", json=HOTEL).status_code == 404
+    assert client.delete(f"/api/trips/{trip_id}/cost-items/{line_id}").status_code == 404
+
+
+def test_cost_lines_require_login(client):
+    assert client.post("/api/trips/1/cost-items", json=HOTEL).status_code == 401
+    assert client.put("/api/trips/1/cost-items/1", json=HOTEL).status_code == 401
+    assert client.delete("/api/trips/1/cost-items/1").status_code == 401
