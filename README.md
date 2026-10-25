@@ -62,6 +62,7 @@ Wanderwise/
 │   │   ├── database.py     engine, sessions, Base
 │   │   ├── models.py       database tables
 │   │   ├── schemas.py      request/response shapes (the API contract)
+│   │   ├── plans.py        save/load a trip's generated plan
 │   │   ├── security.py     passwords, JWT cookie, CurrentUser
 │   │   ├── services/       outside integrations (llm.py = Gemini)
 │   │   └── routers/        endpoints, one file per feature (auth, preferences, trips, plan)

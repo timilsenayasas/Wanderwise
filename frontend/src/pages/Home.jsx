@@ -12,7 +12,6 @@ import './Home.css';
 
 /** Upcoming features. Flip `ready: true` (and add `to`) as each one ships. */
 const UPCOMING = [
-  { icon: 'sparkles', title: 'AI trip plan', text: 'A full itinerary generated from your preferences.', feature: 'F3', ready: true, to: '/plan' },
   { icon: 'wallet', title: 'Budget tracker', text: 'Every cost, tallied against your budget.', feature: 'F8' },
   { icon: 'chat', title: 'AI travel chat', text: 'Ask for changes in plain English.', feature: 'F4' },
   { icon: 'sun', title: 'Weather', text: 'Forecasts for each day of your trip.', feature: 'F9' },
