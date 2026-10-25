@@ -109,6 +109,9 @@ uvicorn main:app --reload
 
 Generate a JWT secret with `python -c "import secrets; print(secrets.token_urlsafe(48))"` and paste it into `backend/.env`.
 
+- It must be at least 32 characters. Locally a weak one only logs a warning, but with `COOKIE_SECURE=true` (deployed) the server refuses to start.
+- **Made your `.env` before Sep 29?** Generate a new secret. The old shared one is public in our git history, and the server refuses it.
+
 Check it works: http://localhost:8000/api/health → `{"status":"ok"}`. Interactive API docs: http://localhost:8000/docs
 
 ### 2. Frontend (terminal 2)

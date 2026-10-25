@@ -1,8 +1,13 @@
 """Auth: register, login, logout, me, password storage."""
 
+import hashlib
+
 import pytest
 from conftest import VALID_USER, register
+from pydantic import ValidationError
 
+from app import config
+from app.config import Settings
 from app.database import get_db
 from app.main import app
 from app.models import User
@@ -121,3 +126,37 @@ def test_password_is_hashed_with_argon2id(client):
     user = db.query(User).one()
     assert user.password_hash.startswith("$argon2id$")
     assert user.password_hash != VALID_USER["password"]
+
+
+# --- JWT secret check at startup -----------------------------------------
+STRONG_SECRET = "x" * config.MIN_JWT_SECRET_LENGTH
+
+
+def make_settings(**values) -> Settings:
+    # _env_file=None so a developer's own backend/.env can't change the result.
+    return Settings(_env_file=None, **values)
+
+
+@pytest.mark.parametrize("secret", ["change-me", "x" * (config.MIN_JWT_SECRET_LENGTH - 1)])
+def test_startup_refuses_weak_secret_when_deployed(secret):
+    with pytest.raises(ValidationError, match="Refusing to start"):
+        make_settings(jwt_secret=secret, cookie_secure=True)
+
+
+def test_weak_secret_only_warns_in_local_dev(caplog):
+    settings = make_settings(jwt_secret="change-me", cookie_secure=False)
+    assert settings.jwt_secret == "change-me"
+    assert "JWT_SECRET" in caplog.text
+
+
+def test_strong_secret_allowed_when_deployed():
+    assert make_settings(jwt_secret=STRONG_SECRET, cookie_secure=True).jwt_secret == STRONG_SECRET
+
+
+@pytest.mark.parametrize("cookie_secure", [False, True])
+def test_leaked_secret_always_refused(monkeypatch, cookie_secure):
+    # Stand-in for the real leaked value, which never appears in the code.
+    leaked = "pretend-this-secret-was-committed-to-git-history"
+    monkeypatch.setattr(config, "LEAKED_JWT_SECRET_SHA256", hashlib.sha256(leaked.encode()).hexdigest())
+    with pytest.raises(ValidationError, match="git history"):
+        make_settings(jwt_secret=leaked, cookie_secure=cookie_secure)
