@@ -1,0 +1,37 @@
+.tabs {
+  display: flex;
+  gap: var(--space-2);
+  border-bottom: 1.5px solid var(--color-border);
+}
+
+.tabs__tab {
+  min-height: 44px;
+  padding: var(--space-2) var(--space-4);
+  margin-bottom: -1.5px; /* sit the selected underline on the tablist border */
+  border: 0;
+  border-bottom: 3px solid transparent;
+  border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font-weight: 600;
+  cursor: pointer;
+  transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease;
+}
+
+.tabs__tab:hover {
+  color: var(--color-primary);
+}
+
+/* The underline marks the selected tab, not just its color. */
+.tabs__tab[aria-selected='true'] {
+  color: var(--color-primary);
+  border-bottom-color: var(--color-primary);
+}
+
+.tabs__panel[hidden] {
+  display: none;
+}
+
+.tabs__panel:focus-visible {
+  border-radius: var(--radius-md);
+}

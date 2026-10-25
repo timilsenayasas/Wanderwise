@@ -2,23 +2,33 @@
  * S4 Trip page: trip details plus its saved day-by-day plan (F3/F5, A1).
  * POST /trips/{id}/plan generates and saves the plan; GET loads it with the trip.
  * Arriving from New Trip (location state `generate`) starts generating right away.
+ * Itinerary and Budget (A3) are tabs; ?tab=budget keeps the Budget tab open on refresh.
  */
 import { useEffect, useRef, useState } from 'react';
-import { useLocation, useNavigate, useParams } from 'react-router-dom';
+import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
+import BudgetTab from '../components/BudgetTab';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import ItineraryView from '../components/ItineraryView';
 import Spinner from '../components/Spinner';
+import Tabs, { TabPanel } from '../components/Tabs';
 import { formatBudget, formatDateRange, tripLength } from '../lib/format';
 import './MyTrips.css'; // interest tags
 import './Itinerary.css';
+
+const TRIP_TABS = [
+  { id: 'itinerary', label: 'Itinerary' },
+  { id: 'budget', label: 'Budget' },
+];
 
 export default function Itinerary() {
   const { tripId } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const tab = searchParams.get('tab') === 'budget' ? 'budget' : 'itinerary';
   const [trip, setTrip] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | notfound | error
   const [loadError, setLoadError] = useState('');
@@ -77,10 +87,18 @@ export default function Itinerary() {
   useEffect(() => {
     if (status !== 'ready' || !autoGenerate.current) return;
     autoGenerate.current = false;
-    // Clear the flag so reloading the page doesn't generate again.
-    navigate(location.pathname, { replace: true, state: null });
+    // Clear the flag so reloading the page doesn't generate again (keeping ?tab=).
+    navigate({ pathname: location.pathname, search: location.search }, { replace: true, state: null });
     if (!plan && missingForPlan.length === 0) generatePlan();
   }, [status]);
+
+  function selectTab(id) {
+    const params = new URLSearchParams(searchParams);
+    if (id === 'budget') params.set('tab', 'budget');
+    else params.delete('tab'); // Itinerary is the default
+    // Replace, so switching tabs doesn't fill the Back button's history.
+    setSearchParams(params, { replace: true });
+  }
 
   function cancelRegenerate() {
     setConfirming(false);
@@ -153,76 +171,87 @@ export default function Itinerary() {
         )}
       </header>
 
-      {!plan && (
-        <Card as="section" padding="lg" className="trip-page__plan-cta" aria-labelledby="plan-cta-title">
-          <h2 id="plan-cta-title">Day-by-day plan</h2>
-          {missingForPlan.length > 0 ? (
-            <p className="text-muted">
-              Add {missingForPlan.join(' and ')} to this trip to generate an AI itinerary.
-            </p>
-          ) : (
-            <>
-              <p className="text-muted">
-                Let AI draft a day-by-day itinerary with times, costs and travel between stops.
-              </p>
+      <div className="trip-page__sections">
+        <Tabs label="Trip sections" idPrefix="trip" tabs={TRIP_TABS} selected={tab} onSelect={selectTab} />
+
+        <TabPanel idPrefix="trip" id="itinerary" selected={tab}>
+          {!plan && (
+            <Card as="section" padding="lg" className="trip-page__plan-cta" aria-labelledby="plan-cta-title">
+              <h2 id="plan-cta-title">Day-by-day plan</h2>
+              {missingForPlan.length > 0 ? (
+                <p className="text-muted">
+                  Add {missingForPlan.join(' and ')} to this trip to generate an AI itinerary.
+                </p>
+              ) : (
+                <>
+                  <p className="text-muted">
+                    Let AI draft a day-by-day itinerary with times, costs and travel between stops.
+                  </p>
+                  {planError && (
+                    <p className="trip-page__alert" role="alert">
+                      {planError}
+                    </p>
+                  )}
+                  <div className="trip-page__actions">
+                    <Button variant="accent" size="lg" onClick={generatePlan} loading={planning} loadingText="Planning your trip…">
+                      Generate AI itinerary
+                    </Button>
+                    {planning && <span className="text-muted">This usually takes 5 to 20 seconds.</span>}
+                  </div>
+                </>
+              )}
+            </Card>
+          )}
+
+          {plan && (
+            <section className="trip-page__plan" aria-labelledby="plan-title">
+              <div className="trip-page__plan-bar">
+                <h2 id="plan-title">Day-by-day plan</h2>
+                <Button
+                  ref={regenerateRef}
+                  variant="secondary"
+                  size="sm"
+                  onClick={() => setConfirming((open) => !open)}
+                  loading={planning}
+                  loadingText="Regenerating…"
+                  aria-expanded={confirming}
+                  aria-controls="regenerate-confirm"
+                >
+                  Regenerate
+                </Button>
+              </div>
+
+              {confirming && (
+                <Card id="regenerate-confirm" padding="md" className="trip-page__confirm">
+                  <p>This replaces your current plan with a new one. The current plan can&apos;t be brought back.</p>
+                  <div className="trip-page__actions">
+                    <Button variant="accent" size="sm" onClick={generatePlan}>
+                      Replace my plan
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={cancelRegenerate}>
+                      Cancel
+                    </Button>
+                  </div>
+                </Card>
+              )}
+
               {planError && (
                 <p className="trip-page__alert" role="alert">
                   {planError}
                 </p>
               )}
-              <div className="trip-page__actions">
-                <Button variant="accent" size="lg" onClick={generatePlan} loading={planning} loadingText="Planning your trip…">
-                  Generate AI itinerary
-                </Button>
-                {planning && <span className="text-muted">This usually takes 5 to 20 seconds.</span>}
-              </div>
-            </>
+              {planning && <p className="text-muted trip-page__wait">Planning a new version. This usually takes 5 to 20 seconds.</p>}
+
+              <ItineraryView itinerary={plan} />
+            </section>
           )}
-        </Card>
-      )}
+        </TabPanel>
 
-      {plan && (
-        <section className="trip-page__plan" aria-labelledby="plan-title">
-          <div className="trip-page__plan-bar">
-            <h2 id="plan-title">Day-by-day plan</h2>
-            <Button
-              ref={regenerateRef}
-              variant="secondary"
-              size="sm"
-              onClick={() => setConfirming((open) => !open)}
-              loading={planning}
-              loadingText="Regenerating…"
-              aria-expanded={confirming}
-              aria-controls="regenerate-confirm"
-            >
-              Regenerate
-            </Button>
-          </div>
-
-          {confirming && (
-            <Card id="regenerate-confirm" padding="md" className="trip-page__confirm">
-              <p>This replaces your current plan with a new one. The current plan can&apos;t be brought back.</p>
-              <div className="trip-page__actions">
-                <Button variant="accent" size="sm" onClick={generatePlan}>
-                  Replace my plan
-                </Button>
-                <Button variant="ghost" size="sm" onClick={cancelRegenerate}>
-                  Cancel
-                </Button>
-              </div>
-            </Card>
-          )}
-
-          {planError && (
-            <p className="trip-page__alert" role="alert">
-              {planError}
-            </p>
-          )}
-          {planning && <p className="text-muted trip-page__wait">Planning a new version. This usually takes 5 to 20 seconds.</p>}
-
-          <ItineraryView itinerary={plan} />
-        </section>
-      )}
+        <TabPanel idPrefix="trip" id="budget" selected={tab}>
+          {/* Mounted only while open, so opening the tab always loads fresh totals. */}
+          {tab === 'budget' && <BudgetTab trip={trip} />}
+        </TabPanel>
+      </div>
     </div>
   );
 }

@@ -4,10 +4,11 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
 import Itinerary from '../pages/Itinerary';
+import { budgetResponse } from './budgetFixtures';
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, api: { get: vi.fn(), post: vi.fn() } };
+  return { ...actual, api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } };
 });
 
 const TRIP = {
@@ -53,19 +54,28 @@ function savedPlan(...names) {
   };
 }
 
-/** GET /trips/7 returns TRIP; GET /trips/7/plan returns `plan` (null = none saved yet). */
+/** GET /trips/7 returns TRIP; /plan returns `plan` (null = none saved yet); /budget a budget. */
 function mockLoad(plan, trip = TRIP) {
-  api.get.mockImplementation((path) => Promise.resolve(path.endsWith('/plan') ? plan : trip));
+  api.get.mockImplementation((path) => {
+    if (path.endsWith('/plan')) return Promise.resolve(plan);
+    if (path.endsWith('/budget')) return Promise.resolve(budgetResponse());
+    return Promise.resolve(trip);
+  });
 }
 
 function LocationState() {
   const location = useLocation();
-  return <p data-testid="state">{JSON.stringify(location.state)}</p>;
+  return (
+    <>
+      <p data-testid="state">{JSON.stringify(location.state)}</p>
+      <p data-testid="search">{location.search}</p>
+    </>
+  );
 }
 
-function renderTrip(state) {
+function renderTrip(state, search = '') {
   render(
-    <MemoryRouter initialEntries={[{ pathname: '/trips/7', state }]}>
+    <MemoryRouter initialEntries={[{ pathname: '/trips/7', search, state }]}>
       <Routes>
         <Route
           path="/trips/:tripId"
@@ -82,8 +92,7 @@ function renderTrip(state) {
 }
 
 beforeEach(() => {
-  api.get.mockReset();
-  api.post.mockReset();
+  Object.values(api).forEach((fn) => fn.mockReset());
 });
 
 describe('Trip page plan', () => {
@@ -169,5 +178,81 @@ describe('Trip page plan', () => {
     expect(await screen.findByText(/add a budget and at least one interest/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /generate ai itinerary/i })).not.toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+describe('Trip page tabs', () => {
+  it('opens on the Itinerary tab without loading the budget', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip();
+
+    expect(await screen.findByText('Art Institute of Chicago')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Itinerary' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Budget' })).toHaveAttribute('aria-selected', 'false');
+    expect(api.get).not.toHaveBeenCalledWith('/trips/7/budget');
+  });
+
+  it('switches to Budget on click and keeps the tab in the URL', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip();
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Budget' }));
+
+    expect(screen.getByRole('tab', { name: 'Budget' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('heading', { name: 'Budget' })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel', { name: 'Budget' })).toBeVisible();
+    expect(screen.queryByText('Art Institute of Chicago')).not.toBeVisible();
+    expect(screen.getByTestId('search')).toHaveTextContent('?tab=budget');
+    expect(api.get).toHaveBeenCalledWith('/trips/7/budget');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+
+    expect(screen.getByText('Art Institute of Chicago')).toBeVisible();
+    expect(screen.getByTestId('search')).toBeEmptyDOMElement();
+  });
+
+  it('moves between tabs with the arrow keys, Home and End', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip();
+    const itinerary = await screen.findByRole('tab', { name: 'Itinerary' });
+    const budget = screen.getByRole('tab', { name: 'Budget' });
+
+    // Only the selected tab is in the Tab order.
+    expect(itinerary).toHaveAttribute('tabindex', '0');
+    expect(budget).toHaveAttribute('tabindex', '-1');
+
+    itinerary.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(budget).toHaveFocus();
+    expect(budget).toHaveAttribute('aria-selected', 'true');
+    expect(budget).toHaveAttribute('tabindex', '0');
+
+    await userEvent.keyboard('{ArrowRight}'); // wraps around
+    expect(itinerary).toHaveFocus();
+    expect(itinerary).toHaveAttribute('aria-selected', 'true');
+
+    await userEvent.keyboard('{End}');
+    expect(budget).toHaveFocus();
+    await userEvent.keyboard('{Home}');
+    expect(itinerary).toHaveFocus();
+    await userEvent.keyboard('{ArrowLeft}');
+    expect(budget).toHaveFocus();
+  });
+
+  it('opens the Budget tab from ?tab=budget', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip(undefined, '?tab=budget');
+
+    expect(await screen.findByRole('heading', { name: 'Budget' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Budget' })).toHaveAttribute('aria-selected', 'true');
+    expect(api.get).toHaveBeenCalledWith('/trips/7/budget');
+  });
+
+  it('keeps ?tab= when clearing the New Trip flag', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip({ generate: true }, '?tab=budget');
+
+    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('null'));
+    expect(screen.getByTestId('search')).toHaveTextContent('?tab=budget');
   });
 });

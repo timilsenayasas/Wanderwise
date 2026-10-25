@@ -16,6 +16,17 @@ export function tripLength(start, end) {
   return Math.round(ms / 86_400_000) + 1;
 }
 
+/** Budget amounts (always USD, A2): "$1,320", or "$45.50" when there are cents. */
+export function formatCurrency(amount) {
+  const digits = Math.round(amount * 100) % 100 === 0 ? 0 : 2;
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(amount);
+}
+
 export function formatBudget(amount) {
   if (amount == null) return 'No budget set';
   return new Intl.NumberFormat(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(amount);
