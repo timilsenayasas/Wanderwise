@@ -8,6 +8,7 @@ Where things live:
   schemas.py       request/response shapes (the API contract)
   plans.py         save/load a trip's generated plan (trip_days, activities, cost_items)
   security.py      passwords, JWT cookie, CurrentUser
+  rate_limit.py    limits repeated failed logins
   services/        outside integrations (Gemini; later maps, weather)
   routers/         one file per feature: endpoints only
 

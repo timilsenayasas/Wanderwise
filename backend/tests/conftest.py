@@ -24,8 +24,17 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.rate_limit import login_limiter  # noqa: E402
 
 VALID_USER = {"email": "Ada@Example.com", "password": "correct-horse-battery", "name": "Ada"}
+
+
+@pytest.fixture(autouse=True)
+def fresh_login_limiter():
+    """Failed-login counts are kept in memory, so clear them between tests."""
+    login_limiter.reset()
+    yield
+    login_limiter.reset()
 
 
 @pytest.fixture()

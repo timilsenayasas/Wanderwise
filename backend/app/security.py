@@ -1,7 +1,11 @@
-"""Password hashing, JWT session cookie, and the CurrentUser dependency."""
+"""Password hashing, JWT session cookie, and the CurrentUser dependency.
 
-from datetime import timedelta
-from typing import Annotated
+Sessions last JWT_EXPIRE_MINUTES and are renewed while the user is active, but
+never run past SESSION_MAX_DAYS after the user last typed their password.
+"""
+
+from datetime import datetime, timedelta, timezone
+from typing import Annotated, NamedTuple
 
 import jwt
 from fastapi import Cookie, Depends, HTTPException, Response, status
@@ -34,35 +38,72 @@ def verify_password(password: str, password_hash: str) -> bool:
         return False
 
 
-def create_access_token(user_id: int) -> str:
-    now = utcnow()
+class SessionClaims(NamedTuple):
+    user_id: int
+    auth_time: datetime  # when the user logged in; renewals keep it
+    expires_at: datetime
+
+
+def _now() -> datetime:
+    # JWT times are whole seconds, so drop microseconds to keep exp and max_age equal.
+    return utcnow().replace(microsecond=0)
+
+
+def _from_timestamp(value: int) -> datetime:
+    return datetime.fromtimestamp(value, tz=timezone.utc)
+
+
+def session_deadline(auth_time: datetime) -> datetime:
+    """The latest a session can last, however active the user is."""
+    return auth_time + timedelta(days=settings.session_max_days)
+
+
+def create_access_token(user_id: int, auth_time: datetime) -> tuple[str, int]:
+    """Return a signed token and its lifetime in seconds (used as the cookie max_age)."""
+    now = _now()
+    expires_at = min(now + timedelta(minutes=settings.jwt_expire_minutes), session_deadline(auth_time))
     payload = {
         "sub": str(user_id),
         "iat": now,
-        "exp": now + timedelta(minutes=settings.jwt_expire_minutes),
+        "auth_time": int(auth_time.timestamp()),
+        "exp": expires_at,
     }
-    return jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGORITHM)
+    token = jwt.encode(payload, settings.jwt_secret, algorithm=JWT_ALGORITHM)
+    return token, int((expires_at - now).total_seconds())
 
 
-def decode_access_token(token: str) -> int | None:
-    """Return the user id from a valid token, or None if invalid/expired."""
+def decode_access_token(token: str) -> SessionClaims | None:
+    """Return the claims from a valid token, or None if invalid/expired."""
     try:
         payload = jwt.decode(
             token,
             settings.jwt_secret,
             algorithms=[JWT_ALGORITHM],
-            options={"require": ["exp", "sub"]},
+            # Tokens from before session renewal have no auth_time; those users log in again.
+            options={"require": ["exp", "sub", "auth_time"]},
         )
-        return int(payload["sub"])
-    except (jwt.PyJWTError, ValueError, KeyError):
+        return SessionClaims(
+            user_id=int(payload["sub"]),
+            auth_time=_from_timestamp(payload["auth_time"]),
+            expires_at=_from_timestamp(payload["exp"]),
+        )
+    except (jwt.PyJWTError, ValueError, KeyError, TypeError):
         return None
 
 
-def set_session_cookie(response: Response, user_id: int) -> None:
+def should_renew(claims: SessionClaims) -> bool:
+    """Renew once less than half the session is left, unless the cap means it can't get longer."""
+    half_session = timedelta(minutes=settings.jwt_expire_minutes) / 2
+    return claims.expires_at - _now() < half_session and claims.expires_at < session_deadline(claims.auth_time)
+
+
+def set_session_cookie(response: Response, user_id: int, auth_time: datetime | None = None) -> None:
+    """Start a new session (no auth_time) or renew one (pass the original auth_time)."""
+    token, lifetime_seconds = create_access_token(user_id, auth_time or _now())
     response.set_cookie(
         key=SESSION_COOKIE,
-        value=create_access_token(user_id),
-        max_age=settings.jwt_expire_minutes * 60,
+        value=token,
+        max_age=lifetime_seconds,
         httponly=True,  # JS can't read it (protects against XSS token theft)
         secure=settings.cookie_secure,
         samesite="lax",
@@ -82,9 +123,11 @@ def clear_session_cookie(response: Response) -> None:
 
 def get_current_user(
     db: DbSession,
+    response: Response,
     ww_session: Annotated[str | None, Cookie()] = None,
 ) -> User:
     """Dependency for protected routes: returns the logged-in User or raises 401.
+    Also renews the session cookie while the user is active.
 
     Usage in a new endpoint:
         def my_route(user: CurrentUser): ...
@@ -92,12 +135,14 @@ def get_current_user(
     unauthorized = HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Not authenticated")
     if not ww_session:
         raise unauthorized
-    user_id = decode_access_token(ww_session)
-    if user_id is None:
+    claims = decode_access_token(ww_session)
+    if claims is None:
         raise unauthorized
-    user = db.get(User, user_id)
+    user = db.get(User, claims.user_id)
     if user is None:
         raise unauthorized
+    if should_renew(claims):
+        set_session_cookie(response, user.id, claims.auth_time)
     return user
 
 
