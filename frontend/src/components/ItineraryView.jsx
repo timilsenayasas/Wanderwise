@@ -2,11 +2,9 @@ import Card from './Card';
 import './ItineraryView.css';
 
 /**
- * Day-by-day itinerary, in the shape returned by POST /api/trips/plan.
+ * Day-by-day itinerary: a trip's saved plan from GET/POST /api/trips/{id}/plan.
  *
  *   <ItineraryView itinerary={plan} />
- *
- * Reuse this on the Itinerary page once plans are saved to a trip.
  */
 export function formatMoney(amount, currency) {
   try {

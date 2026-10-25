@@ -49,6 +49,34 @@
   gap: var(--space-3);
 }
 
+.trip-page__plan {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.trip-page__plan-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.trip-page__plan-bar h2,
+.trip-page__wait {
+  margin: 0;
+}
+
+.trip-page__confirm {
+  display: grid;
+  gap: var(--space-3);
+  border-left: 4px solid var(--color-accent);
+}
+
+.trip-page__confirm p {
+  margin: 0;
+}
+
 .trip-page__alert {
   margin: 0;
   padding: var(--space-3) var(--space-4);

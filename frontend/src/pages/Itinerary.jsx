@@ -1,9 +1,10 @@
 /*
- * S4 Trip page: trip details plus an AI-generated day-by-day plan (F3/F5).
- * The plan isn't saved yet; storing it in trip_days/activities is Sprint 2.
+ * S4 Trip page: trip details plus its saved day-by-day plan (F3/F5, A1).
+ * POST /trips/{id}/plan generates and saves the plan; GET loads it with the trip.
+ * Arriving from New Trip (location state `generate`) starts generating right away.
  */
-import { useEffect, useState } from 'react';
-import { useParams } from 'react-router-dom';
+import { useEffect, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api/client';
 import Button from '../components/Button';
 import Card from '../components/Card';
@@ -16,22 +17,28 @@ import './Itinerary.css';
 
 export default function Itinerary() {
   const { tripId } = useParams();
+  const location = useLocation();
+  const navigate = useNavigate();
   const [trip, setTrip] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | notfound | error
   const [loadError, setLoadError] = useState('');
   const [plan, setPlan] = useState(null);
   const [planning, setPlanning] = useState(false);
   const [planError, setPlanError] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const autoGenerate = useRef(Boolean(location.state?.generate));
+  const regenerateRef = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
     setStatus('loading');
     setPlan(null);
-    api
-      .get(`/trips/${tripId}`)
-      .then((data) => {
+    setConfirming(false);
+    Promise.all([api.get(`/trips/${tripId}`), api.get(`/trips/${tripId}/plan`)])
+      .then(([tripData, savedPlan]) => {
         if (cancelled) return;
-        setTrip(data);
+        setTrip(tripData);
+        setPlan(savedPlan);
         setStatus('ready');
       })
       .catch((err) => {
@@ -56,22 +63,28 @@ export default function Itinerary() {
   async function generatePlan() {
     setPlanning(true);
     setPlanError('');
+    setConfirming(false);
     try {
-      const result = await api.post('/trips/plan', {
-        origin: trip.origin,
-        destination: trip.destination,
-        start_date: trip.start_date,
-        end_date: trip.end_date,
-        travelers: trip.travelers,
-        budget: trip.budget,
-        interests: trip.interests,
-      });
-      setPlan(result);
+      setPlan(await api.post(`/trips/${tripId}/plan`));
     } catch (err) {
       setPlanError(err.message || 'Could not generate a plan. Please try again.');
     } finally {
       setPlanning(false);
     }
+  }
+
+  // Coming from New Trip: generate once, after the trip has loaded.
+  useEffect(() => {
+    if (status !== 'ready' || !autoGenerate.current) return;
+    autoGenerate.current = false;
+    // Clear the flag so reloading the page doesn't generate again.
+    navigate(location.pathname, { replace: true, state: null });
+    if (!plan && missingForPlan.length === 0) generatePlan();
+  }, [status]);
+
+  function cancelRegenerate() {
+    setConfirming(false);
+    regenerateRef.current?.focus();
   }
 
   if (status === 'loading') {
@@ -168,7 +181,48 @@ export default function Itinerary() {
         </Card>
       )}
 
-      {plan && <ItineraryView itinerary={plan} />}
+      {plan && (
+        <section className="trip-page__plan" aria-labelledby="plan-title">
+          <div className="trip-page__plan-bar">
+            <h2 id="plan-title">Day-by-day plan</h2>
+            <Button
+              ref={regenerateRef}
+              variant="secondary"
+              size="sm"
+              onClick={() => setConfirming((open) => !open)}
+              loading={planning}
+              loadingText="Regenerating…"
+              aria-expanded={confirming}
+              aria-controls="regenerate-confirm"
+            >
+              Regenerate
+            </Button>
+          </div>
+
+          {confirming && (
+            <Card id="regenerate-confirm" padding="md" className="trip-page__confirm">
+              <p>This replaces your current plan with a new one. The current plan can&apos;t be brought back.</p>
+              <div className="trip-page__actions">
+                <Button variant="accent" size="sm" onClick={generatePlan}>
+                  Replace my plan
+                </Button>
+                <Button variant="ghost" size="sm" onClick={cancelRegenerate}>
+                  Cancel
+                </Button>
+              </div>
+            </Card>
+          )}
+
+          {planError && (
+            <p className="trip-page__alert" role="alert">
+              {planError}
+            </p>
+          )}
+          {planning && <p className="text-muted trip-page__wait">Planning a new version. This usually takes 5 to 20 seconds.</p>}
+
+          <ItineraryView itinerary={plan} />
+        </section>
+      )}
     </div>
   );
 }

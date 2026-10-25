@@ -1,5 +1,6 @@
 """Request and response shapes (Pydantic). These define the public API contract."""
 
+import re
 from datetime import date, datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
@@ -10,6 +11,14 @@ def _end_not_before_start(end_date: date, info) -> date:
     if start_date and end_date < start_date:
         raise ValueError("End date must be on or after start date")
     return end_date
+
+
+def _clock_time(value: str) -> str:
+    """Accept "9:00" or "09:00" (24-hour) and store it as "09:00"."""
+    match = re.fullmatch(r"(\d{1,2}):(\d{2})", value.strip())
+    if not match or int(match[1]) > 23 or int(match[2]) > 59:
+        raise ValueError("Time must be HH:MM (24-hour)")
+    return f"{int(match[1]):02d}:{match[2]}"
 
 
 # --- Auth -----------------------------------------------------------------
@@ -89,10 +98,10 @@ class TripOut(BaseModel):
 
 # --- AI itinerary (F3) ----------------------------------------------------
 class TripPlanRequest(BaseModel):
-    """Trip constraints sent to the LLM itinerary generator."""
+    """Trip constraints sent to the LLM itinerary generator. Built from a saved trip."""
 
-    origin: str = Field(min_length=1, max_length=100)
-    destination: str = Field(min_length=1, max_length=100)
+    origin: str = Field(min_length=1, max_length=120)
+    destination: str = Field(min_length=1, max_length=120)
     start_date: date
     end_date: date
     travelers: int = Field(ge=1, le=20)
@@ -115,6 +124,8 @@ class ItineraryActivity(BaseModel):
     estimated_cost: float = Field(ge=0)
     travel_time_to_next_minutes: int = Field(ge=0)
 
+    check_start_time = field_validator("start_time")(_clock_time)
+
 
 class ItineraryDay(BaseModel):
     date: date
@@ -126,3 +137,38 @@ class ItineraryResponse(BaseModel):
     currency: str
     total_estimated_cost: float = Field(ge=0)
     days: list[ItineraryDay]
+
+
+# --- Saved plan (A1) ------------------------------------------------------
+# Same fields as ItineraryResponse (so the frontend renders both the same way),
+# plus database ids, end times and coordinates for chat (A6) and the map (A12).
+class SavedActivity(ItineraryActivity):
+    id: int
+    end_time: str
+    latitude: float | None
+    longitude: float | None
+
+
+class SavedDay(BaseModel):
+    id: int
+    day_number: int
+    date: date
+    activities: list[SavedActivity]
+
+
+class CostItemOut(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    category: str
+    description: str | None
+    amount: float
+
+
+class SavedPlanOut(BaseModel):
+    trip_id: int
+    destination: str
+    currency: str
+    total_estimated_cost: float
+    days: list[SavedDay]
+    cost_items: list[CostItemOut]
