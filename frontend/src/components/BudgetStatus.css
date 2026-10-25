@@ -29,3 +29,38 @@
   font-size: var(--text-sm);
   color: var(--color-text-muted);
 }
+
+/* ---- Compared to the budget ---- */
+.budget-status__message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-left: 4px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-deep);
+}
+
+.budget-status__message p {
+  margin: 0;
+}
+
+.budget-status__message .icon {
+  flex-shrink: 0;
+}
+
+.budget-status__message--under {
+  border-left-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+
+.budget-status__message--under .icon {
+  color: var(--color-success);
+}
+
+.budget-status__message--over {
+  border-left-color: var(--color-error);
+  background: var(--color-error-soft);
+  color: var(--color-error);
+  font-weight: 500;
+}

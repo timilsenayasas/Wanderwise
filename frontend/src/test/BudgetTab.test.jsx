@@ -122,3 +122,34 @@ describe('Costs labeled as estimates', () => {
     expect(formatCurrency(-47)).toBe('-$47');
   });
 });
+
+describe('Compared to the budget', () => {
+  it('warns when over budget, with how much over', async () => {
+    await openWith(budgetResponse({ total: 1320, remaining: -120, over_budget: true }));
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Over budget by $120 (budget $1,200, estimate $1,320)');
+  });
+
+  it('shows how much is left when under budget', async () => {
+    await openWith();
+
+    expect(screen.getByRole('status')).toHaveTextContent('$757.50 left of your $1,200 budget');
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('treats exactly on budget as not over', async () => {
+    await openWith(budgetResponse({ total: 1200, remaining: 0, over_budget: false }));
+
+    expect(screen.getByRole('status')).toHaveTextContent(/right on budget/i);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText(/over budget/i)).not.toBeInTheDocument();
+  });
+
+  it('says when the trip has no budget yet', async () => {
+    await openWith(budgetResponse({ budget: null, remaining: null, over_budget: null }));
+
+    expect(screen.getByRole('status')).toHaveTextContent(/this trip has no budget yet/i);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+    expect(screen.queryByText(/left of your/i)).not.toBeInTheDocument();
+  });
+});
