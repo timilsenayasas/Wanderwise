@@ -63,6 +63,7 @@ Wanderwise/
 │   │   ├── models.py       database tables
 │   │   ├── schemas.py      request/response shapes (the API contract)
 │   │   ├── security.py     passwords, JWT cookie, CurrentUser
+│   │   ├── rate_limit.py   limits repeated failed logins
 │   │   ├── services/       outside integrations (llm.py = Gemini)
 │   │   └── routers/        endpoints, one file per feature (auth, preferences, trips, plan)
 │   ├── migrations/         Alembic: one file per database change
@@ -112,6 +113,8 @@ Generate a JWT secret with `python -c "import secrets; print(secrets.token_urlsa
 - It must be at least 32 characters. Locally a weak one only logs a warning, but with `COOKIE_SECURE=true` (deployed) the server refuses to start.
 - **Made your `.env` before Sep 29?** Generate a new secret. The old shared one is public in our git history, and the server refuses it.
 - Sessions last 60 minutes and renew while you're active, up to 7 days after logging in (`JWT_EXPIRE_MINUTES`, `SESSION_MAX_DAYS`).
+- After 5 failed logins for the same email from the same IP, login is blocked for 15 minutes (HTTP 429). Locked yourself out while testing? Restart the backend; the counts live in memory.
+- Deploying? See [docs/deploy-notes.md](docs/deploy-notes.md).
 
 Check it works: http://localhost:8000/api/health → `{"status":"ok"}`. Interactive API docs: http://localhost:8000/docs
 

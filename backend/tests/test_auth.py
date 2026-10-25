@@ -2,6 +2,7 @@
 
 import hashlib
 import re
+import threading
 from datetime import timedelta
 
 import jwt
@@ -14,6 +15,7 @@ from app.config import Settings, settings
 from app.database import get_db
 from app.main import app
 from app.models import User, utcnow
+from app.rate_limit import MAX_ATTEMPTS, WINDOW_SECONDS, LoginLimiter, login_limiter
 from app.security import SESSION_COOKIE, decode_access_token, session_deadline
 
 
@@ -257,3 +259,110 @@ def test_other_protected_routes_renew_too(client, monkeypatch):
     r = client.get("/api/trips")
     assert r.status_code == 200
     assert SESSION_COOKIE in r.cookies
+
+
+# --- Failed-login limit ---------------------------------------------------
+LOCKED_OUT = "Too many login attempts. Try again in 15 minutes."
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture()
+def clock(monkeypatch):
+    fake = FakeClock()
+    monkeypatch.setattr(login_limiter, "clock", fake)
+    return fake
+
+
+def login(client, password="wrong-password", email=VALID_USER["email"]):
+    return client.post("/api/auth/login", json={"email": email, "password": password})
+
+
+def fail_logins(client, times=MAX_ATTEMPTS, email=VALID_USER["email"]):
+    for _ in range(times):
+        assert login(client, email=email).status_code == 401
+
+
+@pytest.fixture()
+def registered(client):
+    register(client)
+    client.cookies.clear()
+    return client
+
+
+def test_locked_out_after_too_many_failed_logins(registered, clock):
+    fail_logins(registered)
+    r = login(registered)
+    assert r.status_code == 429
+    assert r.json()["detail"] == LOCKED_OUT
+    assert r.headers["retry-after"] == str(WINDOW_SECONDS)
+
+
+def test_correct_password_still_blocked_during_lockout(registered, clock):
+    fail_logins(registered)
+    clock.advance(14 * 60)
+    r = login(registered, password=VALID_USER["password"])
+    assert r.status_code == 429
+    assert r.json()["detail"] == "Too many login attempts. Try again in 1 minute."
+    assert SESSION_COOKIE not in r.cookies
+
+
+def test_login_works_again_after_the_window(registered, clock):
+    fail_logins(registered)
+    clock.advance(WINDOW_SECONDS)
+    assert login(registered, password=VALID_USER["password"]).status_code == 200
+
+
+def test_successful_login_resets_the_count(registered, clock):
+    fail_logins(registered, times=MAX_ATTEMPTS - 1)
+    assert login(registered, password=VALID_USER["password"]).status_code == 200
+    # Without the reset, the next attempt would be over the limit.
+    fail_logins(registered, times=MAX_ATTEMPTS - 1)
+
+
+def test_lockout_looks_the_same_for_unknown_emails(registered, clock):
+    fail_logins(registered)
+    real = login(registered)
+    fail_logins(registered, email="nobody@example.com")
+    unknown = login(registered, email="nobody@example.com")
+    assert unknown.status_code == real.status_code == 429
+    assert unknown.json() == real.json()
+    assert unknown.headers["retry-after"] == real.headers["retry-after"]
+
+
+def test_lockout_is_per_email(registered, clock):
+    fail_logins(registered, email="someone-else@example.com")
+    assert login(registered, password=VALID_USER["password"]).status_code == 200
+
+
+def test_limiter_keys_are_separate_per_ip():
+    limiter = LoginLimiter(max_attempts=1, clock=FakeClock())
+    assert limiter.hit(("ada@example.com", "1.1.1.1")) == 0
+    assert limiter.hit(("ada@example.com", "1.1.1.1")) > 0
+    assert limiter.hit(("ada@example.com", "2.2.2.2")) == 0
+
+
+def test_parallel_attempts_cannot_exceed_the_limit():
+    limiter = LoginLimiter(clock=FakeClock())
+    allowed = []
+    start = threading.Barrier(20)
+
+    def attempt():
+        start.wait()
+        allowed.append(limiter.hit(("ada@example.com", "1.1.1.1")) == 0)
+
+    threads = [threading.Thread(target=attempt) for _ in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert allowed.count(True) == MAX_ATTEMPTS

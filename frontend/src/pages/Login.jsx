@@ -8,6 +8,16 @@ import Button from '../components/Button';
 import Input from '../components/Input';
 import { validateEmail, validatePassword } from '../lib/validation';
 
+function loginErrorMessage(err) {
+  if (err.status === 401) return 'Incorrect email or password. Please try again.';
+  if (err.status === 429) {
+    // The server says how long to wait: "Too many login attempts. Try again in 15 minutes."
+    const detail = err.details?.detail;
+    return typeof detail === 'string' ? detail : 'Too many login attempts. Please wait a few minutes and try again.';
+  }
+  return err.message;
+}
+
 export default function Login() {
   const { login } = useAuth();
   const toast = useToast();
@@ -48,7 +58,7 @@ export default function Login() {
       toast.success(`Welcome back, ${user.name}!`);
       // <GuestRoute> redirects to /home (or the page they came from) once user is set.
     } catch (err) {
-      setServerError(err.status === 401 ? 'Incorrect email or password. Please try again.' : err.message);
+      setServerError(loginErrorMessage(err));
       setSubmitting(false);
       // Move focus to the error so screen reader users hear it.
       setTimeout(() => alertRef.current?.focus(), 0);

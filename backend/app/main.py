@@ -7,6 +7,7 @@ Where things live:
   models.py        database tables  (change one -> create a migration, see README)
   schemas.py       request/response shapes (the API contract)
   security.py      passwords, JWT cookie, CurrentUser
+  rate_limit.py    limits repeated failed logins
   services/        outside integrations (Gemini; later maps, weather)
   routers/         one file per feature: endpoints only
 
