@@ -70,6 +70,17 @@ describe('Home', () => {
     expect(links.map).toHaveAttribute('href', '/trips');
   });
 
+  it('shows trip dates and budget, and caps interest tags at three', async () => {
+    api.get.mockResolvedValue([{ ...TRIP, interests: ['food', 'museums', 'parks', 'music', 'shopping'] }]);
+    renderHome();
+
+    expect(await screen.findByRole('link', { name: 'New York, NY' })).toHaveAttribute('href', '/trips/7');
+    expect(screen.getByText(/4 days/)).toBeInTheDocument();
+    expect(screen.getByText(/\$1,500 · 2 travelers/)).toBeInTheDocument();
+    const tags = within(screen.getByRole('list', { name: 'Interests' })).getAllByRole('listitem');
+    expect(tags.map((tag) => tag.textContent)).toEqual(['food', 'museums', 'parks', '+2 more']);
+  });
+
   it('lists only unbuilt features under Coming soon', async () => {
     api.get.mockResolvedValue([]);
     renderHome();

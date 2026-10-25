@@ -100,7 +100,7 @@ export default function Home() {
           <ul className="my-trips__grid">
             {recentTrips.map((trip) => (
               <li key={trip.id}>
-                <TripCard trip={trip} />
+                <TripCard trip={trip} maxTags={3} />
               </li>
             ))}
           </ul>
