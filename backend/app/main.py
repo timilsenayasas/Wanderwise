@@ -9,7 +9,7 @@ Where things live:
   plans.py         save/load a trip's generated plan (trip_days, activities, cost_items)
   budget.py        budget categories and a trip's cost totals
   security.py      passwords, JWT cookie, CurrentUser
-  services/        outside integrations (Gemini; later maps, weather)
+  services/        outside integrations (Gemini, Google Geocoding; later weather)
   routers/         one file per feature: endpoints only
 
 Adding a feature: put endpoints in a new routers/<feature>.py and include it below.
