@@ -60,7 +60,7 @@ export default function Home() {
         <h1 className="home__title">
           Where to next, <span className="home__name">{firstName}</span>?
         </h1>
-        <p className="text-muted">Plan a trip, see what it costs, and pack like a pro, all in one place.</p>
+        <p className="home__lede">Plan a trip, see what it costs, and pack like a pro, all in one place.</p>
       </header>
 
       <Card as="section" tone="navy" padding="lg" className="plan-card fade-up" aria-labelledby="plan-title">
@@ -79,12 +79,12 @@ export default function Home() {
         </div>
         <div className="plan-card__art" aria-hidden="true">
           <svg viewBox="0 0 220 160">
-            <circle cx="160" cy="60" r="34" fill="#f29f4b" />
-            <path d="M10 140 C 60 80, 110 150, 200 40" stroke="#fbf5ec" strokeWidth="3" strokeDasharray="2 9" strokeLinecap="round" fill="none" />
+            <circle className="plan-card__sun" cx="160" cy="60" r="34" />
+            <path className="plan-card__route" d="M10 140 C 60 80, 110 150, 200 40" strokeWidth="3" strokeDasharray="2 9" strokeLinecap="round" fill="none" />
             <g transform="translate(200 40) rotate(-50)">
-              <path d="M14 0 L-6 -3 L-11 -14 L-15 -14 L-11 -3 L-16 -2 L-19 -6 L-22 -6 L-20 0 L-22 6 L-19 6 L-16 2 L-11 3 L-15 14 L-11 14 L-6 3 Z" fill="#fbf5ec" />
+              <path className="plan-card__plane" d="M14 0 L-6 -3 L-11 -14 L-15 -14 L-11 -3 L-16 -2 L-19 -6 L-22 -6 L-20 0 L-22 6 L-19 6 L-16 2 L-11 3 L-15 14 L-11 14 L-6 3 Z" />
             </g>
-            <circle cx="10" cy="140" r="6" fill="#e8683f" stroke="#fbf5ec" strokeWidth="2" />
+            <circle className="plan-card__start" cx="10" cy="140" r="6" strokeWidth="2" />
           </svg>
         </div>
       </Card>
@@ -92,7 +92,7 @@ export default function Home() {
       <section className="home__section" aria-labelledby="trips-title">
         <div className="home__section-head">
           <h2 id="trips-title">Your trips</h2>
-          <Button to="/trips" variant="ghost" size="sm">
+          <Button to="/trips" variant="ghost">
             View all
           </Button>
         </div>
@@ -122,7 +122,9 @@ export default function Home() {
       </section>
 
       <section className="home__section" aria-labelledby="actions-title">
-        <h2 id="actions-title">What you can do</h2>
+        <div className="home__section-head">
+          <h2 id="actions-title">What you can do</h2>
+        </div>
         <ul className="action-grid">
           {actions(recentTrips?.[0]).map((a, i) => (
             <li key={a.title} className="fade-up" style={{ animationDelay: `${120 + i * 70}ms` }}>
@@ -142,7 +144,9 @@ export default function Home() {
       </section>
 
       <section className="home__section" aria-labelledby="soon-title">
-        <h2 id="soon-title">Coming soon</h2>
+        <div className="home__section-head">
+          <h2 id="soon-title">Coming soon</h2>
+        </div>
         <ul className="soon-grid">
           {UPCOMING.map((f) => (
             <li key={f.title}>

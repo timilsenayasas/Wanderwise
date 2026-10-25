@@ -1,14 +1,23 @@
+/* Type scale on this page: h1 3xl > hero title 2xl > section h2 xl > card h3 lg. */
 .home__header {
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-5);
 }
 
 .home__title {
+  margin-bottom: var(--space-2);
   font-size: var(--text-3xl);
 }
 
 .home__name {
   color: var(--color-accent-strong);
   font-style: italic;
+}
+
+.home__lede {
+  max-width: 52ch;
+  margin: 0;
+  font-size: var(--text-lg);
+  color: var(--color-text-muted);
 }
 
 /* Big "Plan a new trip" card */
@@ -18,36 +27,43 @@
   overflow: hidden;
   background: var(--gradient-sunset);
   border: 0;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
 }
 
-.plan-card__title {
-  font-size: var(--text-3xl);
-  color: #fff;
+/* Doubled class to beat .card--navy h2. */
+.plan-card .plan-card__title {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-2xl);
+  color: var(--color-on-dark);
 }
 
 .plan-card__text {
-  color: #fff;
+  color: var(--color-on-dark);
   max-width: 48ch;
   margin-bottom: var(--space-5);
 }
 
 .plan-card .btn--accent {
-  background: #fff;
+  background: var(--color-on-dark);
   color: var(--color-accent-strong);
 }
 
-.plan-card .btn--accent:hover {
-  background: var(--color-bg);
+.plan-card .btn--accent:hover:not(:disabled) {
+  background: var(--color-amber-soft);
   color: var(--color-accent-hover);
 }
 
 .plan-card__art svg {
   width: 100%;
-  max-width: 260px;
+  max-width: 240px;
   display: block;
   margin-left: auto;
 }
+
+.plan-card__sun { fill: var(--color-amber); }
+.plan-card__route { stroke: var(--color-on-dark); }
+.plan-card__plane { fill: var(--color-on-dark); }
+.plan-card__start { fill: var(--color-accent); stroke: var(--color-on-dark); }
 
 @media (max-width: 599px) {
   .plan-card__art {
@@ -63,19 +79,28 @@
 }
 
 .home__section {
-  margin-top: var(--space-7);
+  margin-top: var(--space-6);
 }
 
+@media (min-width: 768px) {
+  .home__section {
+    margin-top: var(--space-7);
+  }
+}
+
+/* Every section opens the same way: an h2, with an optional action on the right. */
 .home__section-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  min-height: 44px;
   margin-bottom: var(--space-3);
 }
 
 .home__section-head h2 {
   margin: 0;
+  font-size: var(--text-xl);
 }
 
 /* "What you can do": each card is one link (icon, text, arrow). */
@@ -85,7 +110,7 @@
   padding: 0;
   margin: 0;
   display: grid;
-  gap: var(--space-3);
+  gap: var(--space-4);
 }
 
 .action-grid > li,
