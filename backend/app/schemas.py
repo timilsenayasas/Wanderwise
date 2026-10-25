@@ -2,6 +2,7 @@
 
 import re
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -154,6 +155,10 @@ class SavedDay(BaseModel):
     day_number: int
     date: date
     activities: list[SavedActivity]
+
+
+# The fixed budget categories every cost line uses (A2, see budget.py).
+BudgetCategory = Literal["food", "activities", "transport", "lodging", "other"]
 
 
 class CostItemOut(BaseModel):

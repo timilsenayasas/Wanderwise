@@ -208,8 +208,9 @@ def test_cost_items_match_the_plan(client, monkeypatch):
     plan = client.post(f"/api/trips/{trip_id}/plan").json()
 
     lines = {item["category"]: (item["amount"], item["description"]) for item in plan["cost_items"]}
-    # "Meal" and "meal" group together; nature cost $0 so it has no line.
-    assert lines == {"sightseeing": (32.0, "1 activity"), "meal": (65.0, "2 activities")}
+    # "meal" and "Meal" -> food; sightseeing and the $0 nature walk -> activities.
+    assert lines == {"activities": (32.0, "2 activities"), "food": (65.0, "2 activities")}
+    assert {item["source"] for item in plan["cost_items"]} == {"plan"}
     assert plan["total_estimated_cost"] == 97.0
 
 

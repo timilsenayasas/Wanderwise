@@ -11,6 +11,7 @@ from collections import defaultdict
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
+from app.budget import PLAN_CURRENCY, to_budget_category
 from app.models import PLAN_SOURCE, Activity, CostItem, Trip, TripDay
 from app.schemas import (
     CostItemOut,
@@ -21,8 +22,6 @@ from app.schemas import (
     SavedPlanOut,
 )
 
-# Plans are generated in USD to match the trip budget (see services/llm.py).
-PLAN_CURRENCY = "USD"
 MINUTES_PER_DAY = 24 * 60
 
 
@@ -86,12 +85,12 @@ def _activity_row(trip_day: TripDay, activity: ItineraryActivity) -> Activity:
 
 
 def build_cost_items(trip: Trip, itinerary: ItineraryResponse) -> list[CostItem]:
-    """One cost line per activity category with its summed cost. $0 categories are skipped."""
+    """One cost line per budget category with its summed cost. $0 categories are skipped."""
     totals: dict[str, float] = defaultdict(float)
     counts: dict[str, int] = defaultdict(int)
     for day in itinerary.days:
         for activity in day.activities:
-            category = activity.category.strip().lower()[:80] or "other"
+            category = to_budget_category(activity.category)
             totals[category] += activity.estimated_cost
             counts[category] += 1
 
