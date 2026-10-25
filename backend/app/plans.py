@@ -1,7 +1,8 @@
 """A1: save a generated plan with its trip, load it back, and clear it.
 
-A saved plan is: trip_days -> activities, plus cost_items (one line per activity category).
-SQLite doesn't enforce foreign keys yet, so clear_plan deletes rows explicitly
+A saved plan is: trip_days -> activities, plus plan cost_items (one line per activity category).
+The traveler's own cost lines (source "user") belong to the trip, not the plan.
+SQLite doesn't enforce foreign keys yet, so clear_plan/clear_trip delete rows explicitly
 instead of relying on ON DELETE CASCADE.
 """
 
@@ -10,7 +11,7 @@ from collections import defaultdict
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import Activity, CostItem, Trip, TripDay
+from app.models import PLAN_SOURCE, Activity, CostItem, Trip, TripDay
 from app.schemas import (
     CostItemOut,
     ItineraryActivity,
@@ -53,10 +54,16 @@ def has_plan(trip: Trip, db: Session) -> bool:
 
 
 def clear_plan(trip: Trip, db: Session) -> None:
-    """Delete the trip's saved plan rows. The caller commits."""
+    """Delete the trip's saved plan rows, keeping the traveler's own cost lines. The caller commits."""
     day_ids = select(TripDay.id).where(TripDay.trip_id == trip.id)
     db.execute(delete(Activity).where(Activity.trip_day_id.in_(day_ids)))
     db.execute(delete(TripDay).where(TripDay.trip_id == trip.id))
+    db.execute(delete(CostItem).where(CostItem.trip_id == trip.id, CostItem.source == PLAN_SOURCE))
+
+
+def clear_trip(trip: Trip, db: Session) -> None:
+    """Delete the plan and every cost line (plan and user), before deleting the trip. The caller commits."""
+    clear_plan(trip, db)
     db.execute(delete(CostItem).where(CostItem.trip_id == trip.id))
 
 
@@ -91,6 +98,7 @@ def build_cost_items(trip: Trip, itinerary: ItineraryResponse) -> list[CostItem]
     return [
         CostItem(
             trip_id=trip.id,
+            source=PLAN_SOURCE,
             category=category,
             description=f"{counts[category]} {'activity' if counts[category] == 1 else 'activities'}",
             amount=round(total, 2),

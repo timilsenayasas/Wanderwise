@@ -163,6 +163,8 @@ class CostItemOut(BaseModel):
     category: str
     description: str | None
     amount: float
+    source: str
+    trip_date: date | None
 
 
 class SavedPlanOut(BaseModel):

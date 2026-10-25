@@ -177,6 +177,11 @@ class Activity(Base):
     )
 
 
+# CostItem.source: "plan" lines are rebuilt on every regenerate; "user" lines are the traveler's own.
+PLAN_SOURCE = "plan"
+USER_SOURCE = "user"
+
+
 class CostItem(Base):
     """F8: An estimated expense associated with a trip."""
 
@@ -198,6 +203,16 @@ class CostItem(Base):
     )
     amount: Mapped[float] = mapped_column(
         Float, nullable=False
+    )
+    source: Mapped[str] = mapped_column(
+        String(10),
+        default=PLAN_SOURCE,
+        server_default=PLAN_SOURCE,
+        nullable=False,
+    )
+    # Optional day of the trip, so per-day totals can include the line.
+    trip_date: Mapped[date | None] = mapped_column(
+        nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),

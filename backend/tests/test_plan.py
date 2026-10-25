@@ -111,6 +111,16 @@ def create_trip(client, **overrides) -> int:
     return client.post("/api/trips", json={**VALID_TRIP, **overrides}).json()["id"]
 
 
+def add_user_line(trip_id: int, category="lodging", amount=300.0) -> None:
+    """A traveler's own cost line, written straight to the database."""
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        db.add(CostItem(trip_id=trip_id, source="user", category=category, amount=amount))
+        db.commit()
+    finally:
+        db.close()
+
+
 # --- Access ---------------------------------------------------------------
 def test_plan_requires_login(client):
     assert client.get("/api/trips/1/plan").status_code == 401
@@ -220,6 +230,20 @@ def test_regenerate_replaces_the_plan(client, monkeypatch):
     assert client.get(f"/api/trips/{trip_id}/plan").json() == r.json()
 
 
+def test_regenerate_keeps_user_cost_lines(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+    client.post(f"/api/trips/{trip_id}/plan")
+    add_user_line(trip_id)
+
+    plan = client.post(f"/api/trips/{trip_id}/plan").json()
+
+    lines = [(item["source"], item["amount"]) for item in plan["cost_items"]]
+    assert sorted(lines) == [("plan", 30.0), ("user", 300.0)]  # old plan lines gone, user line kept
+    assert count_rows(CostItem) == 2
+
+
 def test_plans_for_two_trips_are_kept_apart(client, monkeypatch):
     use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
     register(client)
@@ -248,11 +272,12 @@ def test_gemini_error_keeps_the_old_plan(client, monkeypatch):
     assert client.get(f"/api/trips/{trip_id}/plan").json() == saved
 
 
-def test_deleting_a_trip_deletes_its_plan(client, monkeypatch):
+def test_deleting_a_trip_deletes_its_plan_and_cost_lines(client, monkeypatch):
     use_fake_gemini(monkeypatch, FIRST_PLAN)
     register(client)
     trip_id = create_trip(client)
     client.post(f"/api/trips/{trip_id}/plan")
+    add_user_line(trip_id)
 
     client.delete(f"/api/trips/{trip_id}")
 
