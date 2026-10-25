@@ -125,6 +125,7 @@ describe('Trip map', () => {
     expect(details).toHaveTextContent('Navy Pier');
     expect(details).toHaveTextContent('Day 2 · Fri, Nov 6 · 10:00–12:00');
     expect(details).toHaveTextContent('Navy Pier, Chicago, IL');
+    expect(details).toHaveAttribute('data-max-width', '260'); // fits on a 375px phone
     expect(stopList().getByRole('button', { name: /navy pier/i })).toHaveAttribute('aria-pressed', 'true');
 
     await userEvent.click(screen.getByRole('button', { name: 'Close details' }));

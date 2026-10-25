@@ -66,9 +66,9 @@ export function AdvancedMarker({ title, onClick, children }) {
   );
 }
 
-export function InfoWindow({ headerContent, children, onCloseClick }) {
+export function InfoWindow({ headerContent, children, onCloseClick, maxWidth }) {
   return (
-    <div role="dialog" aria-label="Map details">
+    <div role="dialog" aria-label="Map details" data-max-width={maxWidth}>
       {headerContent}
       {children}
       <button type="button" onClick={onCloseClick}>

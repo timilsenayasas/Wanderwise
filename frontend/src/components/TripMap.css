@@ -7,8 +7,9 @@
   margin: 0;
 }
 
+/* About half a phone screen, so the stop list and the page stay reachable (also in landscape). */
 .trip-map__map {
-  height: clamp(300px, 55vh, 520px);
+  height: clamp(260px, 55vh, 520px);
   overflow: hidden;
   border: 1px solid var(--color-border);
   border-radius: var(--radius-lg);
@@ -36,21 +37,25 @@
   transform: scale(1.15);
 }
 
-/* ---- Info window (Google draws the box; this is the text inside it) ---- */
+/*
+ * ---- Info window ----
+ * Google draws the box and picks its text color, so no color tokens here: dark tokens (B1)
+ * would put light text on Google's white box.
+ */
 .trip-map__info-title {
-  color: var(--color-primary);
   font-size: var(--text-base);
+  overflow-wrap: anywhere;
 }
 
 .trip-map__info {
   margin: 0;
-  color: var(--color-text);
   font-size: var(--text-sm);
+  overflow-wrap: anywhere;
 }
 
 .trip-map__info--muted {
   margin-top: var(--space-1);
-  color: var(--color-text-muted);
+  opacity: 0.8;
 }
 
 /* ---- Stop list ---- */

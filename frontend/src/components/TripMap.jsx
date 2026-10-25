@@ -148,6 +148,7 @@ function MapView({ stops, selected, onSelect, mapId }) {
           <InfoWindow
             position={selected.position}
             pixelOffset={[0, -40]} // above the pin, not on it
+            maxWidth={260} // fits inside the map on a 375px phone
             headerContent={<strong className="trip-map__info-title">{selected.name}</strong>}
             onCloseClick={() => onSelect(null)}
           >
