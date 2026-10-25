@@ -213,6 +213,16 @@ def test_cost_items_match_the_plan(client, monkeypatch):
     assert plan["total_estimated_cost"] == 97.0
 
 
+def test_prompt_asks_for_costs_for_the_whole_group(client, monkeypatch):
+    prompts = use_fake_gemini(monkeypatch, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+
+    client.post(f"/api/trips/{trip_id}/plan")
+
+    assert "estimated_cost is the total for all travelers, not per person." in prompts[0]
+
+
 # --- Replace --------------------------------------------------------------
 def test_regenerate_replaces_the_plan(client, monkeypatch):
     prompts = use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
