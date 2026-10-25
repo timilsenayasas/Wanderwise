@@ -63,9 +63,10 @@ Wanderwise/
 │   │   ├── models.py       database tables
 │   │   ├── schemas.py      request/response shapes (the API contract)
 │   │   ├── plans.py        save/load a trip's generated plan
+│   │   ├── budget.py       budget categories and a trip's cost totals
 │   │   ├── security.py     passwords, JWT cookie, CurrentUser
 │   │   ├── services/       outside integrations (llm.py = Gemini)
-│   │   └── routers/        endpoints, one file per feature (auth, preferences, trips, plan)
+│   │   └── routers/        endpoints, one file per feature (auth, preferences, trips, plan, budget)
 │   ├── migrations/         Alembic: one file per database change
 │   ├── .env.example        copy to .env
 │   └── tests/              one file per feature, shared setup in conftest.py
