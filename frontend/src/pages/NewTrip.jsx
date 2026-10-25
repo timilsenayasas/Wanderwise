@@ -121,8 +121,9 @@ export default function NewTrip() {
         throw new Error('Trip was created without an ID.');
       }
 
-      toast.success('Trip saved!');
-      navigate(`/trips/${tripId}`);
+      toast.success('Trip saved! Planning your itinerary…');
+      // The trip page starts generating the plan when it sees `generate`.
+      navigate(`/trips/${tripId}`, { state: { generate: true } });
     } catch (error) {
       console.error('Failed to create trip:', error);
       toast.error('Unable to save trip. Please try again.');

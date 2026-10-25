@@ -6,7 +6,9 @@ Where things live:
   database.py      engine, sessions, Base
   models.py        database tables  (change one -> create a migration, see README)
   schemas.py       request/response shapes (the API contract)
+  plans.py         save/load a trip's generated plan (trip_days, activities, cost_items)
   security.py      passwords, JWT cookie, CurrentUser
+  rate_limit.py    limits repeated failed logins
   services/        outside integrations (Gemini; later maps, weather)
   routers/         one file per feature: endpoints only
 
@@ -47,6 +49,5 @@ def health() -> dict:
 
 app.include_router(auth.router)
 app.include_router(preferences.router)
-# plan before trips so POST /api/trips/plan is matched before /api/trips/{trip_id}.
-app.include_router(plan.router)
 app.include_router(trips.router)
+app.include_router(plan.router)

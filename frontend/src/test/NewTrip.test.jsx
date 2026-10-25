@@ -17,7 +17,12 @@ vi.mock('../api/client', () => ({
 function LocationDisplay() {
   const location = useLocation();
 
-  return <p data-testid="location">{location.pathname}</p>;
+  return (
+    <>
+      <p data-testid="location">{location.pathname}</p>
+      <p data-testid="state">{JSON.stringify(location.state)}</p>
+    </>
+  );
 }
 
 function renderNewTrip() {
@@ -115,7 +120,7 @@ describe('New Trip page', () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
-  it('submits the trip, shows a success toast, and redirects', async () => {
+  it('submits the trip, shows a success toast, and goes on to generate its plan', async () => {
     const user = userEvent.setup();
 
     api.post.mockResolvedValue({
@@ -141,12 +146,17 @@ describe('New Trip page', () => {
     });
 
     expect(
-      await screen.findByText('Trip saved!'),
+      await screen.findByText('Trip saved! Planning your itinerary…'),
     ).toBeInTheDocument();
 
     expect(
       await screen.findByTestId('location'),
     ).toHaveTextContent('/trips/42');
+
+    // Tells the trip page to start generating the plan.
+    expect(
+      screen.getByTestId('state'),
+    ).toHaveTextContent('{"generate":true}');
   
 });
 it('prefills the New Trip form with saved profile preferences', async () => {

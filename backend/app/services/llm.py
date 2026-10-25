@@ -54,7 +54,7 @@ Destination: {trip.destination}
 Start date: {trip.start_date.isoformat()}
 End date: {trip.end_date.isoformat()}
 Number of travelers: {trip.travelers}
-Total trip budget: {trip.budget:.2f}
+Total trip budget (USD): {trip.budget:.2f}
 Interests: {", ".join(trip.interests)}
 Pace: {trip.pace or "No preference"}
 Dietary preferences: {", ".join(trip.dietary_preferences) or "None"}
@@ -65,11 +65,11 @@ REQUIREMENTS
 - Do not create overlapping activities.
 - Reflect the traveler's interests throughout the itinerary.
 - Include at least one meal suggestion per day.
-- Give every activity a start time and duration.
+- Give every activity a start time (24-hour HH:MM) and duration.
 - Include estimated cost for each activity.
 - Include estimated travel time to the next activity.
 - Keep the total estimated cost within the traveler's budget when reasonably possible.
-- All monetary values must use one consistent currency.
+- All monetary values must be in US dollars (USD).
 - Costs are estimates, not guaranteed prices.
 - Do not include booking or payment instructions.
 
@@ -80,7 +80,7 @@ Use exactly this JSON structure:
 
 {{
   "destination": "string",
-  "currency": "string",
+  "currency": "USD",
   "total_estimated_cost": 0.00,
   "days": [
     {{
@@ -116,12 +116,15 @@ def _remember(cache_key: str, itinerary: ItineraryResponse) -> None:
         itinerary_cache.popitem(last=False)  # drop the oldest
 
 
-def generate_itinerary(trip: TripPlanRequest) -> ItineraryResponse:
-    """Generate an itinerary with Gemini and validate the JSON response."""
+def generate_itinerary(trip: TripPlanRequest, use_cache: bool = True) -> ItineraryResponse:
+    """Generate an itinerary with Gemini and validate the JSON response.
+
+    use_cache=False always asks Gemini (e.g. "Regenerate" wants a different plan).
+    """
 
     cache_key = build_cache_key(trip)
 
-    if cache_key in itinerary_cache:
+    if use_cache and cache_key in itinerary_cache:
         logger.info("LLM cache hit")
         itinerary_cache.move_to_end(cache_key)
         return itinerary_cache[cache_key]

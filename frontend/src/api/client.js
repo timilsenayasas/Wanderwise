@@ -4,6 +4,8 @@
  * - Always sends the session cookie (credentials: "include").
  * - Sends/parses JSON.
  * - Throws ApiError with a human-friendly message on non-2xx responses.
+ * - On a 401 outside /auth (the session expired), calls the handler set with
+ *   setUnauthorizedHandler, so AuthContext can log the user out.
  *
  * Usage:
  *   import { api } from '../api/client';
@@ -12,6 +14,13 @@
  */
 
 const BASE_URL = (import.meta.env.VITE_API_URL || '/api').replace(/\/$/, '');
+
+let onUnauthorized = null;
+
+/** AuthContext registers this. Pass null to remove it. */
+export function setUnauthorizedHandler(handler) {
+  onUnauthorized = handler;
+}
 
 export class ApiError extends Error {
   constructor(message, status, details) {
@@ -64,6 +73,8 @@ export async function request(path, { method = 'GET', body, headers, ...rest } =
   const data = isJson ? await response.json().catch(() => null) : null;
 
   if (!response.ok) {
+    // A 401 from /auth/* means "wrong password" or "not logged in yet", not "session expired".
+    if (response.status === 401 && !path.startsWith('/auth/')) onUnauthorized?.();
     throw new ApiError(messageFromBody(data, response.status), response.status, data);
   }
   return data;

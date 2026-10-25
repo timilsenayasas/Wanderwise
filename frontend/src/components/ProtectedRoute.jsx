@@ -4,14 +4,15 @@ import Spinner from './Spinner';
 
 /**
  * Wrap routes that need a logged-in user. Logged-out visitors are sent to
- * /login, which sends them back here after they sign in.
+ * /login, which sends them back here after they sign in. If their session
+ * expired, /login also tells them why.
  *
  *   <Route element={<ProtectedRoute />}>
  *     <Route path="/trips" element={<MyTrips />} />
  *   </Route>
  */
 export default function ProtectedRoute({ children }) {
-  const { user, loading } = useAuth();
+  const { user, loading, sessionExpired } = useAuth();
   const location = useLocation();
 
   if (loading) {
@@ -23,7 +24,7 @@ export default function ProtectedRoute({ children }) {
   }
 
   if (!user) {
-    return <Navigate to="/login" replace state={{ from: location }} />;
+    return <Navigate to="/login" replace state={{ from: location, sessionExpired }} />;
   }
 
   return children ?? <Outlet />;
