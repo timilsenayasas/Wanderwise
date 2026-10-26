@@ -168,10 +168,25 @@ Good to know:
 
 #### Where to stay (Stay tab)
 
-Hotel suggestions come from Places API (New) Text Search ("hotels in {destination}", up to 6), with a nightly price estimate from Gemini (`LLM_API_KEY`), always labelled "Estimated". Choosing a hotel or adding your own puts one Lodging line in the Budget tab (changed only on the Stay tab); skipping or removing the choice takes it out.
+A trip is split into **stays**: runs of nights in one base city. The AI plan gives every day a `base_city` (where the traveler sleeps), and consecutive nights in the same city make one stay, e.g. "Kathmandu · 2 nights" then "Chitwan · 2 nights". A trip without a plan, or with one city, has one stay and the tab looks like a single list. Stays are worked out from the plan each time and capped at 6 (extra nights join the last one); only the choices are stored, matched to stays by number (`trip_lodging.stay_number`).
 
-- **Cost:** asking for rating and review count puts Text Search in Google's Enterprise tier (about 1,000 free requests a month, then about $35 per 1,000), and photos are about 1,000 free a month, then $7 per 1,000 (check [Google's pricing](https://developers.google.com/maps/billing-and-pricing/pricing) for current numbers). So the app searches only when the Stay tab is first opened or Refresh is pressed, asks only for the fields it shows, and loads at most 6 photos. The Map tab's hotel pin reuses saved coordinates and never searches. Set a requests-per-day quota on Places API (New) as in step 5.
-- **Google's rules:** only place IDs are stored, plus coordinates for at most 30 days (refreshed or cleared after that). Names, ratings, addresses and photos are fetched fresh and never saved. The list shows "Google Maps" attribution, and every photo credits its author and links to the place on Google Maps.
+Each stay gets its own hotel suggestions from Places API (New) Text Search ("hotels in {city}", up to 6), with a nightly price estimate from Gemini (`LLM_API_KEY`) for that stay's dates, always labelled "Estimated". Choosing a hotel or adding your own puts one Lodging line per stay in the Budget tab ("Lodging · Chitwan, Nepal" on multi-city trips, changed only on the Stay tab); skipping or removing the choice takes it out. A stay's hotels are judged against what's left after the other stays' choices.
+
+- **When a plan is regenerated:** choices stay with their stay number. If that stay is now a different city, the Stay tab and the Itinerary say "Your plan changed" instead of moving the choice. Choices for stays the new plan no longer has are listed under "No longer in your plan", and their Lodging lines stay in the budget until removed there.
+- **Itinerary and Map:** each day says where you sleep that night ("your hotel in Chitwan", your own hotel's name, or what you chose), with check-out and check-in on the day the city changes. Google's hotel names aren't shown there: that would cost a lookup on every visit. The Map tab shows one "Your hotel" pin per stay with a picked hotel.
+- **Cost:** asking for rating and review count puts Text Search in Google's Enterprise tier (about 1,000 free requests a month, then about $35 per 1,000), and photos are about 1,000 free a month, then $7 per 1,000 (check [Google's pricing](https://developers.google.com/maps/billing-and-pricing/pricing) for current numbers). So the app asks only for the fields it shows and loads at most 6 photos, and:
+
+  | Action | Google calls |
+  |---|---|
+  | Open the Itinerary or Map; add your own hotel, skip, change nights or price, remove | none (just our own data) |
+  | Open the Stay tab: its first stay opens by itself | 1 Text Search + up to 6 photos, + 1 Place Details if the chosen hotel isn't in the results |
+  | Open another stay's section the first time | the same, for that city |
+  | Refresh a stay | the same again |
+  | Choose a suggested hotel | 1 location-only Place Details (cheapest tier), for its map pin |
+  | Map pin older than 30 days | 1 location-only Place Details to refresh it |
+
+  Reopening a section doesn't search again; only Refresh does. Set a requests-per-day quota on Places API (New) as in step 5.
+- **Google's rules:** only place IDs are stored, plus coordinates for at most 30 days (a pin's are refreshed when it's shown; any older than that are cleared at startup and on every pin request). Names, ratings, addresses and photos are fetched fresh and never saved. The list shows "Google Maps" attribution, and every photo credits its author and links to the place on Google Maps.
 
 ### Troubleshooting
 
@@ -186,6 +201,8 @@ Hotel suggestions come from Places API (New) Text Search ("hotels in {destinatio
 | Map tab says "No map locations for this plan yet" | Set `MAPS_API_KEY` in `backend/.env`, restart the backend, and regenerate the plan. The backend log says why a lookup failed. |
 | Stay tab says "We can't suggest hotels right now" | `MAPS_API_KEY` is missing, or **Places API (New)** isn't enabled or allowed on the key. In development the message says whether the key is missing; otherwise the backend log names the error. |
 | Hotels show "No estimate" | `LLM_API_KEY` is missing or Gemini failed. Hotels can still be chosen by entering a nightly price. |
+| A multi-city trip shows only one stay | The plan was made before multi-city trips, or Gemini gave every day the same base city. Regenerate the plan. Plans without base cities are treated as one stay in the destination. |
+| A stay says "Your plan changed" | A regenerated plan put a different city at that stay. Change the choice (or remove it) on the Stay tab; nothing is moved for you. |
 
 ---
 
