@@ -54,6 +54,23 @@ export function fitNoteText(fitNote, left) {
   return '';
 }
 
+function sameName(name) {
+  return (name ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
+}
+
+/**
+ * The place ID of the suggestion that is the chosen hotel, or null.
+ * By place ID first. If Google now lists the hotel under a different ID, fall back to its name
+ * (from the fresh details in GET /lodging): compared here only, nothing is saved.
+ */
+export function chosenSuggestionId(choice, suggestions) {
+  if (choice?.choice !== 'hotel') return null;
+  if (suggestions.some((hotel) => hotel.place_id === choice.place_id)) return choice.place_id;
+  const name = sameName(choice.hotel?.name);
+  if (!name) return null;
+  return suggestions.find((hotel) => sameName(hotel.name) === name)?.place_id ?? null;
+}
+
 /** The chosen hotel's name for messages: Google's (fresh), the traveler's own, or a fallback. */
 export function choiceName(choice, hotel) {
   return hotel?.name || choice.custom_name || 'Your hotel';

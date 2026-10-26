@@ -13,7 +13,15 @@ import Icon from './Icon';
 import OwnHotelForm from './OwnHotelForm';
 import StayChoice, { CHANGE_BUTTON_ID, STAY_TITLE_ID } from './StayChoice';
 import { formatCurrency, formatDateRange } from '../lib/format';
-import { choiceName, fitNoteText, lodgingLeftText, nightsText, SKIP_LABELS, tripNights } from '../lib/lodging';
+import {
+  choiceName,
+  chosenSuggestionId,
+  fitNoteText,
+  lodgingLeftText,
+  nightsText,
+  SKIP_LABELS,
+  tripNights,
+} from '../lib/lodging';
 import { usePrefersReducedMotion } from '../lib/motion';
 import './WhereToStay.css';
 
@@ -88,12 +96,11 @@ export default function WhereToStay({ trip }) {
   }, [focusTarget, reducedMotion]);
 
   const suggestions = page?.suggestions ?? [];
+  const chosenId = chosenSuggestionId(choice, suggestions);
+  const chosenSuggestion = suggestions.find((hotel) => hotel.place_id === chosenId) ?? null;
   // PUT answers don't repeat Google's details, so a picked hotel's come from the suggestions.
-  const chosenHotel =
-    choice?.choice === 'hotel'
-      ? choice.hotel ?? suggestions.find((hotel) => hotel.place_id === choice.place_id) ?? null
-      : null;
-  const chosenEstimate = suggestions.find((hotel) => hotel.place_id === choice?.place_id)?.nightly_estimate;
+  const chosenHotel = choice?.choice === 'hotel' ? choice.hotel ?? chosenSuggestion : null;
+  const chosenEstimate = chosenSuggestion?.nightly_estimate;
 
   async function saveChoice(body) {
     const saved = await api.put(`/trips/${trip.id}/lodging`, body);
@@ -260,7 +267,7 @@ export default function WhereToStay({ trip }) {
               refreshing={refreshing}
               destination={trip.destination}
               nights={nights}
-              choice={choice}
+              chosenId={chosenId}
               choosing={choosing}
               chooseError={chooseError}
               onChoose={choose}
@@ -315,7 +322,7 @@ export default function WhereToStay({ trip }) {
   );
 }
 
-function Suggestions({ status, page, refreshing, destination, nights, choice, choosing, chooseError, onChoose, onAddOwn }) {
+function Suggestions({ status, page, refreshing, destination, nights, chosenId, choosing, chooseError, onChoose, onAddOwn }) {
   if (status === 'loading' || refreshing) {
     const count = refreshing ? Math.max(page?.suggestions.length ?? 0, 1) : SKELETON_COUNT;
     return (
@@ -366,7 +373,7 @@ function Suggestions({ status, page, refreshing, destination, nights, choice, ch
               hotel={hotel}
               nights={nights}
               index={index}
-              chosen={choice?.choice === 'hotel' && choice.place_id === hotel.place_id}
+              chosen={hotel.place_id === chosenId}
               saving={choosing === hotel.place_id}
               error={chooseError.placeId === hotel.place_id ? chooseError.message : ''}
               onChoose={(price) => onChoose(hotel, price)}

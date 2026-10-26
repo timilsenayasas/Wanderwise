@@ -215,6 +215,33 @@ describe('The chosen hotel in Suggested hotels', () => {
     await waitFor(() => expect(cardState('The Drake')).toBe('chosen'));
   });
 
+  // Safety net: Google can list the chosen hotel under a new place ID. Matched by name in the browser only.
+  it('marks the chosen hotel by name when Google lists it under a different place ID', async () => {
+    const chosen = hotelChoice('old-id', 140, 4, { hotel: { ...DRAKE, place_id: 'old-id', name: '  the  DRAKE ' } });
+    await openWith(lodgingPage({ choice: chosen }));
+
+    expect(cardState('The Drake')).toBe('chosen');
+    expect(cardState('Hotel Lux')).toBe('plain');
+    expect(within(yourStay()).getByText('Estimated')).toBeInTheDocument(); // the matched card's estimate
+    expect(api.put).not.toHaveBeenCalled(); // nothing is saved
+  });
+
+  it('marks nothing when neither the place ID nor the name matches', async () => {
+    const chosen = hotelChoice('old-id', 140, 4, { hotel: { ...DRAKE, place_id: 'old-id', name: 'The Langham' } });
+    await openWith(lodgingPage({ choice: chosen }));
+
+    expect(cardState('The Drake')).toBe('plain');
+    expect(cardState('Hotel Lux')).toBe('plain');
+  });
+
+  it('prefers the exact place ID over a same-named card', async () => {
+    const twin = suggestion('p9', 'The Drake', 200);
+    await openWith(lodgingPage({ suggestions: [twin, DRAKE], choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
+
+    const cards = screen.getAllByRole('article', { name: 'The Drake' });
+    expect(cards.map((c) => c.classList.contains('hotel-card--chosen'))).toEqual([false, true]);
+  });
+
   it('goes back to Choose when the stay is removed', async () => {
     await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
     api.delete.mockResolvedValue(null);
