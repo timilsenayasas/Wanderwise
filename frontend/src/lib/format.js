@@ -10,10 +10,26 @@ export function formatDateRange(start, end) {
   return start === end ? endText : `${startText} – ${endText}`;
 }
 
+/** "Thu, Nov 5". Parsed as local midnight so the date doesn't shift by timezone. */
+export function formatShortDay(isoDate) {
+  return new Date(`${isoDate}T00:00`).toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
 /** Number of days in a trip, counting both ends. */
 export function tripLength(start, end) {
   const ms = new Date(`${end}T00:00`) - new Date(`${start}T00:00`);
   return Math.round(ms / 86_400_000) + 1;
+}
+
+/** Budget amounts (always USD, A2): "$1,320", or "$45.50" when there are cents. */
+export function formatCurrency(amount) {
+  const digits = Math.round(amount * 100) % 100 === 0 ? 0 : 2;
+  return new Intl.NumberFormat(undefined, {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: digits,
+    maximumFractionDigits: digits,
+  }).format(amount);
 }
 
 export function formatBudget(amount) {
