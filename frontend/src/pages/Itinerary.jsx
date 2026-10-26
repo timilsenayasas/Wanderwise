@@ -302,7 +302,7 @@ export default function Itinerary() {
               }
             >
               <Suspense fallback={<Spinner size="lg" label="Loading the map" />}>
-                <TripMap plan={plan} onShowItinerary={showItinerary} />
+                <TripMap plan={plan} tripId={trip.id} onShowItinerary={showItinerary} />
               </Suspense>
             </ErrorBoundary>
           )}
