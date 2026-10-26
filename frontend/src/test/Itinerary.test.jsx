@@ -67,15 +67,15 @@ function locatedPlan() {
 
 /**
  * GET /trips/7 returns TRIP; /plan `plan` (null = none saved yet); /budget a budget;
- * /lodging and /lodging/stays/1 a one-stay `lodging` scenario; /lodging/pin `pin`.
+ * /lodging and /lodging/stays/1 a one-stay `lodging` scenario; /lodging/pins `pins`.
  */
-function mockLoad(plan, trip = TRIP, budget = budgetResponse(), lodging = lodgingPage({ nights: 1 }), pin = null) {
+function mockLoad(plan, trip = TRIP, budget = budgetResponse(), lodging = lodgingPage({ nights: 1 }), pins = []) {
   api.get.mockImplementation((path) => {
     if (path.endsWith('/plan')) return Promise.resolve(plan);
     if (path.endsWith('/budget')) return Promise.resolve(budget);
     if (path.endsWith('/lodging')) return Promise.resolve(lodging.overview);
     if (path.endsWith('/lodging/stays/1')) return Promise.resolve(lodging.page);
-    if (path.endsWith('/lodging/pin')) return Promise.resolve(pin);
+    if (path.endsWith('/lodging/pins')) return Promise.resolve(pins);
     return Promise.resolve(trip);
   });
 }
@@ -363,12 +363,14 @@ describe('Trip page tabs', () => {
 
   it('shows the hotel chosen on the Stay tab as a pin on the Map tab', async () => {
     vi.stubEnv('VITE_GOOGLE_MAPS_KEY', 'test-browser-key');
-    mockLoad(locatedPlan(), TRIP, budgetResponse(), lodgingPage(), { latitude: 41.9, longitude: -87.62 });
+    mockLoad(locatedPlan(), TRIP, budgetResponse(), lodgingPage(), [
+      { stay_number: 1, city: 'Chicago, IL', latitude: 41.9, longitude: -87.62 },
+    ]);
     renderTrip(undefined, '?tab=map');
 
     expect(await screen.findByRole('button', { name: 'Marker Your hotel' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Marker 1. Art Institute of Chicago' })).toBeInTheDocument();
-    expect(api.get).toHaveBeenCalledWith('/trips/7/lodging/pin');
+    expect(api.get).toHaveBeenCalledWith('/trips/7/lodging/pins');
     expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging/stays/1'); // the map never searches for hotels
   });
 
