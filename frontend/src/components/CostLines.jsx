@@ -17,7 +17,7 @@ const ADD_BUTTON_ID = 'cost-lines-add';
 const editButtonId = (line) => `cost-line-${line.id}-edit`;
 const cancelDeleteId = (line) => `cost-line-${line.id}-cancel-delete`;
 
-export default function CostLines({ trip, items, onChanged }) {
+export default function CostLines({ trip, items, onChanged, onShowStay }) {
   const [editing, setEditing] = useState(null); // null | 'new' | a line id
   const [confirmingDelete, setConfirmingDelete] = useState(null); // a line id
   const [deleting, setDeleting] = useState(false);
@@ -109,6 +109,7 @@ export default function CostLines({ trip, items, onChanged }) {
                   onAskToDelete={() => askToDelete(line)}
                   onCancelDelete={() => cancelDelete(line)}
                   onDelete={() => remove(line)}
+                  onShowStay={onShowStay}
                 />
               )}
             </li>
@@ -126,9 +127,11 @@ function lineText(line) {
   return { title: line.description || category, detail: line.description ? category : null };
 }
 
-function CostLine({ line, confirming, deleting, deleteError, onEdit, onAskToDelete, onCancelDelete, onDelete }) {
+function CostLine({ line, confirming, deleting, deleteError, onEdit, onAskToDelete, onCancelDelete, onDelete, onShowStay }) {
   const { title, detail } = lineText(line);
   const isPlan = line.source === 'plan';
+  // The Where to stay choice's line changes with the choice, so it's edited on the Stay tab.
+  const fromStay = Boolean(line.from_stay);
 
   return (
     <>
@@ -138,12 +141,21 @@ function CostLine({ line, confirming, deleting, deleteError, onEdit, onAskToDele
           <span className="cost-line__meta">
             {[detail, line.trip_date && formatShortDay(line.trip_date)].filter(Boolean).join(' · ')}
             {isPlan && <span className="cost-line__badge">From your plan</span>}
+            {fromStay && <span className="cost-line__badge">From Stay</span>}
           </span>
         </div>
         <span className="cost-line__amount">{formatCurrency(line.amount)}</span>
       </div>
 
-      {!isPlan && !confirming && (
+      {fromStay && onShowStay && (
+        <div className="cost-line__actions">
+          <Button variant="ghost" onClick={onShowStay}>
+            Change on the Stay tab
+          </Button>
+        </div>
+      )}
+
+      {!isPlan && !fromStay && !confirming && (
         <div className="cost-line__actions">
           <Button id={editButtonId(line)} variant="ghost" onClick={onEdit} aria-label={`Edit ${title}`}>
             Edit

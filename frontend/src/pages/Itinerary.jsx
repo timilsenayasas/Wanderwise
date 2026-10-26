@@ -2,7 +2,8 @@
  * S4 Trip page: trip details plus its saved day-by-day plan (F3/F5, A1).
  * POST /trips/{id}/plan generates and saves the plan; GET loads it with the trip.
  * Arriving from New Trip (location state `generate`) starts generating right away.
- * Itinerary, Budget (A3) and Map (A12) are tabs; ?tab=budget or ?tab=map keeps a tab open on refresh.
+ * Itinerary, Budget (A3), Stay (where to stay) and Map (A12) are tabs; ?tab=budget, ?tab=stay or
+ * ?tab=map keeps a tab open on refresh.
  */
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
@@ -19,12 +20,14 @@ import { formatBudget, formatDateRange, tripLength } from '../lib/format';
 import './MyTrips.css'; // interest tags
 import './Itinerary.css';
 
-// The map code is only downloaded when someone opens the Map tab.
+// The map and hotel code is only downloaded when someone opens its tab.
 const TripMap = lazy(() => import('../components/TripMap'));
+const WhereToStay = lazy(() => import('../components/WhereToStay'));
 
 const TRIP_TABS = [
   { id: 'itinerary', label: 'Itinerary' },
   { id: 'budget', label: 'Budget' },
+  { id: 'stay', label: 'Stay' },
   { id: 'map', label: 'Map' },
 ];
 
@@ -42,6 +45,9 @@ export default function Itinerary() {
   const [planning, setPlanning] = useState(false);
   const [planError, setPlanError] = useState('');
   const [confirming, setConfirming] = useState(false);
+  // Stay searches Google (billed), so it mounts on first open and then stays, hidden, until the page closes.
+  const [stayOpened, setStayOpened] = useState(tab === 'stay');
+  if (tab === 'stay' && !stayOpened) setStayOpened(true);
   const autoGenerate = useRef(Boolean(location.state?.generate));
   const regenerateRef = useRef(null);
 
@@ -106,11 +112,13 @@ export default function Itinerary() {
     setSearchParams(params, { replace: true });
   }
 
-  // From the Budget tab's empty state: the button that was focused is about to be hidden.
-  function showItinerary() {
-    selectTab('itinerary');
-    document.getElementById(tabId('trip', 'itinerary'))?.focus();
+  // From another tab's button: the button that was focused is about to be hidden.
+  function showTab(id) {
+    selectTab(id);
+    document.getElementById(tabId('trip', id))?.focus();
   }
+
+  const showItinerary = () => showTab('itinerary');
 
   function cancelRegenerate() {
     setConfirming(false);
@@ -261,7 +269,25 @@ export default function Itinerary() {
 
         <TabPanel idPrefix="trip" id="budget" selected={tab}>
           {/* Mounted only while open, so opening the tab always loads fresh totals. */}
-          {tab === 'budget' && <BudgetTab trip={trip} onShowItinerary={showItinerary} />}
+          {tab === 'budget' && (
+            <BudgetTab trip={trip} onShowItinerary={showItinerary} onShowStay={() => showTab('stay')} />
+          )}
+        </TabPanel>
+
+        <TabPanel idPrefix="trip" id="stay" selected={tab}>
+          {stayOpened && (
+            <ErrorBoundary
+              fallback={
+                <Card padding="lg">
+                  <p role="status">Hotel suggestions can&apos;t load right now. The rest of your trip still works.</p>
+                </Card>
+              }
+            >
+              <Suspense fallback={<Spinner size="lg" label="Loading where to stay" />}>
+                <WhereToStay key={trip.id} trip={trip} />
+              </Suspense>
+            </ErrorBoundary>
+          )}
         </TabPanel>
 
         <TabPanel idPrefix="trip" id="map" selected={tab}>
@@ -276,7 +302,7 @@ export default function Itinerary() {
               }
             >
               <Suspense fallback={<Spinner size="lg" label="Loading the map" />}>
-                <TripMap plan={plan} onShowItinerary={showItinerary} />
+                <TripMap plan={plan} tripId={trip.id} onShowItinerary={showItinerary} />
               </Suspense>
             </ErrorBoundary>
           )}

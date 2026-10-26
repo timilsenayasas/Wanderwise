@@ -37,6 +37,26 @@
   transform: scale(1.15);
 }
 
+/* The chosen hotel: a rounded square with a bed, the reverse of the navy stop circles,
+   so it reads as "where you sleep", not another numbered stop. */
+.trip-map__hotel-pin {
+  display: inline-grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  border: 2.5px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+}
+
+.trip-map__hotel-pin--selected {
+  border-color: var(--color-accent-strong);
+  color: var(--color-accent-strong);
+  transform: scale(1.15);
+}
+
 /*
  * ---- Info window ----
  * Google draws the box and picks its text color, so no color tokens here: dark tokens (B1)
@@ -106,6 +126,36 @@
 
 .trip-map__stop[aria-pressed='true'] .trip-map__stop-number {
   background: var(--color-accent-strong);
+}
+
+/* Same shape as the hotel's map pin. */
+.trip-map__stop-hotel {
+  display: inline-grid;
+  flex-shrink: 0;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border: 2px solid var(--color-primary);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+  color: var(--color-primary);
+}
+
+.trip-map__stop[aria-pressed='true'] .trip-map__stop-hotel {
+  border-color: var(--color-accent-strong);
+  color: var(--color-accent-strong);
+}
+
+/* A hotel but no plan yet: the map shows the hotel and says how to add stops. */
+.trip-map__no-stops {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.trip-map__no-stops p {
+  margin: 0;
 }
 
 .trip-map__stop-text {

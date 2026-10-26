@@ -4,6 +4,8 @@
  * Advanced Markers need a Map ID: VITE_GOOGLE_MAPS_MAP_ID, or Google's DEMO_MAP_ID for development.
  * The numbered list under the map selects the same stops, so keyboard and screen reader users
  * get everything the markers show.
+ * The hotel chosen on the Stay tab is its own pin ("Your hotel", a bed, not a number), from
+ * GET /trips/{id}/lodging/pin: no search, just saved coordinates. Without one, the map is unchanged.
  */
 import { useEffect, useMemo, useState } from 'react';
 import {
@@ -15,12 +17,40 @@ import {
   useApiLoadingStatus,
   useMap,
 } from '@vis.gl/react-google-maps';
+import { api } from '../api/client';
 import Button from './Button';
 import Card from './Card';
 import EmptyState from './EmptyState';
 import Icon from './Icon';
+import Spinner from './Spinner';
 import { formatShortDay } from '../lib/format';
 import './TripMap.css';
+
+// Stops have numeric ids, so this can't clash with one.
+const HOTEL_ID = 'hotel';
+const HOTEL_LABEL = 'Your hotel';
+
+/** The chosen hotel's pin, or null. undefined while still asking. A failed request is just no pin. */
+function useHotelPin(tripId) {
+  const [hotel, setHotel] = useState(tripId == null ? null : undefined);
+  useEffect(() => {
+    if (tripId == null) return undefined;
+    let cancelled = false;
+    api
+      .get(`/trips/${tripId}/lodging/pin`)
+      .then((pin) => {
+        if (cancelled) return;
+        setHotel(pin ? { id: HOTEL_ID, name: HOTEL_LABEL, position: { lat: pin.latitude, lng: pin.longitude } } : null);
+      })
+      .catch(() => {
+        if (!cancelled) setHotel(null); // the stops still show
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [tripId]);
+  return hotel;
+}
 
 /** Activities that have coordinates, numbered in visit order. */
 export function mapStops(plan) {
@@ -48,14 +78,22 @@ function stopWhen(stop) {
   return `Day ${stop.dayNumber} · ${formatShortDay(stop.date)} · ${stop.startTime}–${stop.endTime}`;
 }
 
-export default function TripMap({ plan, onShowItinerary }) {
+export default function TripMap({ plan, tripId, onShowItinerary }) {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY;
   const mapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || 'DEMO_MAP_ID';
   const stops = useMemo(() => (plan ? mapStops(plan) : []), [plan]);
+  const hotel = useHotelPin(tripId);
+  // Everything the map fits in view: the stops plus the hotel.
+  const places = useMemo(() => (hotel ? [...stops, hotel] : stops), [stops, hotel]);
   const [selectedId, setSelectedId] = useState(null);
-  const selected = stops.find((stop) => stop.id === selectedId) ?? null;
+  const selected = places.find((place) => place.id === selectedId) ?? null;
 
-  if (stops.length === 0) {
+  // No stops: wait for the hotel pin before saying there's nothing to show.
+  if (stops.length === 0 && hotel === undefined) {
+    return <Spinner size="lg" label="Loading the map" />;
+  }
+
+  if (places.length === 0) {
     return (
       <section className="trip-map" aria-labelledby="map-title">
         <h2 id="map-title">Map</h2>
@@ -81,12 +119,27 @@ export default function TripMap({ plan, onShowItinerary }) {
       {/* No key: say so instead of loading a map that can only show an error. */}
       {apiKey ? (
         <APIProvider apiKey={apiKey}>
-          <MapOrFallback stops={stops} selected={selected} onSelect={setSelectedId} mapId={mapId} />
+          <MapOrFallback
+            stops={stops}
+            hotel={hotel}
+            places={places}
+            selected={selected}
+            onSelect={setSelectedId}
+            mapId={mapId}
+          />
         </APIProvider>
       ) : (
         <MapUnavailable reason="VITE_GOOGLE_MAPS_KEY isn't set in frontend/.env." />
       )}
-      <StopList stops={stops} selectedId={selectedId} onSelect={setSelectedId} />
+      <StopList stops={stops} hotel={hotel} selectedId={selectedId} onSelect={setSelectedId} />
+      {stops.length === 0 && (
+        <div className="trip-map__no-stops">
+          <p className="text-muted">Generate a plan on the Itinerary tab to add its stops to the map.</p>
+          <Button variant="secondary" size="sm" onClick={onShowItinerary}>
+            Go to itinerary
+          </Button>
+        </div>
+      )}
     </section>
   );
 }
@@ -117,20 +170,33 @@ export function MapUnavailable({ reason }) {
   );
 }
 
-function MapView({ stops, selected, onSelect, mapId }) {
+function MapView({ stops, hotel, places, selected, onSelect, mapId }) {
   return (
     <div className="trip-map__map">
       <Map
         mapId={mapId}
-        defaultCenter={stops[0].position}
+        defaultCenter={places[0].position}
         defaultZoom={13}
         // Two fingers to move the map on phones, so the page still scrolls past it.
         gestureHandling="cooperative"
         clickableIcons={false}
         reuseMaps
       >
-        <FitToStops stops={stops} />
+        <FitToStops stops={places} />
         <PanToSelected stop={selected} />
+        {hotel && (
+          <AdvancedMarker
+            key={HOTEL_ID}
+            position={hotel.position}
+            title={HOTEL_LABEL}
+            onClick={() => onSelect(HOTEL_ID)}
+            zIndex={stops.length + 2} // above the stops, so it's never hidden under one
+          >
+            <span className={`trip-map__hotel-pin ${selected?.id === HOTEL_ID ? 'trip-map__hotel-pin--selected' : ''}`}>
+              <Icon name="bed" size={18} strokeWidth={2.2} />
+            </span>
+          </AdvancedMarker>
+        )}
         {stops.map((stop) => (
           <AdvancedMarker
             key={stop.id}
@@ -152,8 +218,14 @@ function MapView({ stops, selected, onSelect, mapId }) {
             headerContent={<strong className="trip-map__info-title">{selected.name}</strong>}
             onCloseClick={() => onSelect(null)}
           >
-            <p className="trip-map__info">{stopWhen(selected)}</p>
-            {selected.location && <p className="trip-map__info trip-map__info--muted">{selected.location}</p>}
+            {selected.id === HOTEL_ID ? (
+              <p className="trip-map__info">Where you&apos;re staying, from the Stay tab.</p>
+            ) : (
+              <>
+                <p className="trip-map__info">{stopWhen(selected)}</p>
+                {selected.location && <p className="trip-map__info trip-map__info--muted">{selected.location}</p>}
+              </>
+            )}
           </InfoWindow>
         )}
       </Map>
@@ -161,7 +233,7 @@ function MapView({ stops, selected, onSelect, mapId }) {
   );
 }
 
-/** Zoom the map to show every stop (one stop: centered, street level). */
+/** Zoom the map to show every stop and the hotel (just one: centered, street level). */
 function FitToStops({ stops }) {
   const map = useMap();
   useEffect(() => {
@@ -187,10 +259,29 @@ function PanToSelected({ stop }) {
   return null;
 }
 
-function StopList({ stops, selectedId, onSelect }) {
+function StopList({ stops, hotel, selectedId, onSelect }) {
   return (
     // role="list" because Safari drops list semantics when list-style is none.
     <ol className="trip-map__stops" role="list" aria-label="Stops on the map">
+      {hotel && (
+        <li>
+          <button
+            type="button"
+            className="trip-map__stop"
+            aria-pressed={selectedId === HOTEL_ID}
+            aria-label={`${HOTEL_LABEL}, where you're staying`}
+            onClick={() => onSelect(selectedId === HOTEL_ID ? null : HOTEL_ID)}
+          >
+            <span className="trip-map__stop-hotel" aria-hidden="true">
+              <Icon name="bed" size={18} strokeWidth={2.2} />
+            </span>
+            <span className="trip-map__stop-text">
+              <span className="trip-map__stop-name">{HOTEL_LABEL}</span>
+              <span className="trip-map__stop-when">Where you&apos;re staying</span>
+            </span>
+          </button>
+        </li>
+      )}
       {stops.map((stop) => (
         <li key={stop.id}>
           <button
