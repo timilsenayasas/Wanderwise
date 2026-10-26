@@ -339,6 +339,32 @@ class TripNightOverride(Base):
     )
 
 
+class TripStaySplit(Base):
+    """The traveler's split of a stay: a second hotel in the same city from this night on.
+
+    Kept when the plan is regenerated, and applied only while that night is still in `city`,
+    so a new plan can't have it cut a different city in two.
+    """
+
+    __tablename__ = "trip_stay_splits"
+    __table_args__ = (UniqueConstraint("trip_id", "night_date", name="uq_trip_stay_splits_trip_night"),)
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True
+    )
+    trip_id: Mapped[int] = mapped_column(
+        ForeignKey("trips.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    night_date: Mapped[date] = mapped_column(
+        nullable=False
+    )
+    city: Mapped[str] = mapped_column(
+        String(120), nullable=False
+    )
+
+
 class TripHotelEstimate(Base):
     """Where to stay: a hotel suggested for a trip, with our AI nightly price estimate (USD).
 

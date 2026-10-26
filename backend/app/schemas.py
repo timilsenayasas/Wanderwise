@@ -378,6 +378,11 @@ class StayOut(BaseModel):
     choice: LodgingChoiceOut | None
     plan_changed: bool  # the choice was made for a different city than this stay now has
     choice_city: str | None  # the city the choice was made for
+    # A stay split by the traveler (one city, more than one hotel): part 2 of 2, say. None otherwise.
+    part: int | None = None
+    parts: int | None = None
+    merge_night: date | None = None  # this part starts at a split: DELETE /splits/{merge_night} merges it back
+    can_split: bool = False  # at least 2 nights, and the trip has room for another stay
 
 
 class EarlierChoiceOut(BaseModel):
@@ -439,5 +444,7 @@ class LodgingPinOut(BaseModel):
 
     stay_number: int
     city: str
+    part: int | None = None  # a split stay's part, so its pins can be told apart
+    parts: int | None = None
     latitude: float
     longitude: float

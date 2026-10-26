@@ -21,6 +21,7 @@ from app.models import (
     TripHotelEstimate,
     TripLodging,
     TripNightOverride,
+    TripStaySplit,
 )
 from app.schemas import (
     CostItemOut,
@@ -70,13 +71,14 @@ def clear_plan(trip: Trip, db: Session) -> None:
 
 
 def clear_trip(trip: Trip, db: Session) -> None:
-    """Delete the plan, lodging choices, hotel estimates, night overrides and every cost line, before deleting the trip.
+    """Delete the plan, lodging choices and splits, estimates, night overrides and cost lines, before deleting the trip.
 
     The caller commits. (Regenerating only clears the plan: overrides and choices outlive it.)
     """
     clear_plan(trip, db)
     db.execute(delete(TripHotelEstimate).where(TripHotelEstimate.trip_id == trip.id))
     db.execute(delete(TripNightOverride).where(TripNightOverride.trip_id == trip.id))
+    db.execute(delete(TripStaySplit).where(TripStaySplit.trip_id == trip.id))
     # Before the cost lines: trip_lodging points at its Lodging line.
     db.execute(delete(TripLodging).where(TripLodging.trip_id == trip.id))
     db.execute(delete(CostItem).where(CostItem.trip_id == trip.id))

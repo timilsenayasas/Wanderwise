@@ -34,6 +34,7 @@ from app.models import (
     TripHotelEstimate,
     TripLodging,
     TripNightOverride,
+    TripStaySplit,
     utcnow,
 )
 from app.schemas import (
@@ -88,6 +89,11 @@ class Stay:
     check_in: date
     check_out: date
     nights: int
+    # A traveler's split: this stay starts at one (split_night), and is part `part` of `parts`
+    # of the same city's run. All None for a stay that isn't split.
+    split_night: date | None = None
+    part: int | None = None
+    parts: int | None = None
 
 
 def trip_nights(trip: Trip) -> int:
@@ -138,15 +144,22 @@ def trip_stays(trip: Trip, db: Session, nights: list[Night] | None = None) -> li
 
     Days without a base city take the one before (or the destination). Nights in transit belong
     to no stay and end a run, so the same city before and after one is two stays (rebooked).
-    More than MAX_STAYS stays: the extra nights join the last one. Every night in transit: none.
+    The traveler's splits end a run too, while that night is still in the split's city: one city,
+    two hotels. More than MAX_STAYS stays (splits included): the extra nights join the last one.
+    Every night in transit: none.
     """
     nights = nights if nights is not None else trip_night_marks(trip, db)
     cities = {
         day.trip_date: day.base_city
         for day in db.scalars(select(TripDay).where(TripDay.trip_id == trip.id, TripDay.base_city.is_not(None)))
     }
+    splits = {
+        row.night_date: row.city
+        for row in db.scalars(select(TripStaySplit).where(TripStaySplit.trip_id == trip.id))
+    }
 
-    groups: list[tuple[str, list[date]]] = []
+    # (city, nights, the split night it starts at or None)
+    groups: list[tuple[str, list[date], date | None]] = []
     city = trip.destination
     after_transit = False
     for night in nights:
@@ -154,19 +167,41 @@ def trip_stays(trip: Trip, db: Session, nights: list[Night] | None = None) -> li
         if night.in_transit:
             after_transit = True
             continue
-        if groups and not after_transit and _city_key(groups[-1][0]) == _city_key(city):
+        continues = groups and not after_transit and _city_key(groups[-1][0]) == _city_key(city)
+        split_here = continues and night.date in splits and _place(splits[night.date]) == _place(city)
+        if continues and not split_here:
             groups[-1][1].append(night.date)
         elif len(groups) == MAX_STAYS:
             groups[-1][1].append(night.date)
         else:
-            groups.append((city, [night.date]))
+            groups.append((city, [night.date], night.date if split_here else None))
         after_transit = False
+
+    # Number each chain of split parts (a stay, then the parts split off it): 1 of 3, 2 of 3, 3 of 3.
+    part_of: list[tuple[int | None, int | None]] = [(None, None)] * len(groups)
+    first = 0
+    while first < len(groups):
+        last = first
+        while last + 1 < len(groups) and groups[last + 1][2]:
+            last += 1
+        if last > first:
+            for i in range(first, last + 1):
+                part_of[i] = (i - first + 1, last - first + 1)
+        first = last + 1
 
     # Check out the morning after the last night; a same-day trip checks out the day it checks in.
     trip_end = max(trip.end_date, trip.start_date)
     return [
-        Stay(number, stay_city, dates[0], min(dates[-1] + timedelta(days=1), trip_end), len(dates))
-        for number, (stay_city, dates) in enumerate(groups, start=1)
+        Stay(
+            number,
+            stay_city,
+            dates[0],
+            min(dates[-1] + timedelta(days=1), trip_end),
+            len(dates),
+            split_night,
+            *part_of[number - 1],
+        )
+        for number, (stay_city, dates, split_night) in enumerate(groups, start=1)
     ]
 
 
@@ -336,7 +371,14 @@ def hotel_pins(trip: Trip, db: Session) -> list[LodgingPinOut]:
             set_coords(row, places.get_location(row.place_id))
         if row.latitude is not None:
             pins.append(
-                LodgingPinOut(stay_number=stay.number, city=stay.city, latitude=row.latitude, longitude=row.longitude)
+                LodgingPinOut(
+                    stay_number=stay.number,
+                    city=stay.city,
+                    part=stay.part,
+                    parts=stay.parts,
+                    latitude=row.latitude,
+                    longitude=row.longitude,
+                )
             )
     return pins
 
@@ -375,7 +417,22 @@ def _remove_cost_line(trip: Trip, row: TripLodging, db: Session) -> None:
         db.delete(line)
 
 
-def _sync_cost_line(trip: Trip, row: TripLodging, db: Session, one_stay: bool) -> None:
+def _date_span(start: date, end: date) -> str:
+    """"Oct 12 – 14", or "Oct 30 – Nov 2" across months."""
+    end_text = str(end.day) if (start.year, start.month) == (end.year, end.month) else f"{end:%b} {end.day}"
+    return f"{start:%b} {start.day} – {end_text}"
+
+
+def line_description(stay: Stay, one_stay: bool) -> str:
+    """"Lodging"; "Lodging · Chitwan, Nepal" on multi-city trips; with the dates for a split part."""
+    if one_stay:
+        return LODGING_LINE_DESCRIPTION
+    if stay.part:
+        return f"{LODGING_LINE_DESCRIPTION} · {stay.city} · {_date_span(stay.check_in, stay.check_out)}"
+    return f"{LODGING_LINE_DESCRIPTION} · {stay.city}"
+
+
+def _sync_cost_line(trip: Trip, row: TripLodging, db: Session, description: str) -> None:
     """Keep the choice's one Lodging line in step: nightly price x nights, or no line when skipping.
 
     A user line, so regenerating the plan keeps it. Changing the choice updates the same line.
@@ -391,7 +448,7 @@ def _sync_cost_line(trip: Trip, row: TripLodging, db: Session, one_stay: bool) -
         db.add(line)
         db.flush()  # for its id
         row.cost_item_id = line.id
-    line.description = LODGING_LINE_DESCRIPTION if one_stay else f"{LODGING_LINE_DESCRIPTION} · {row.city}"
+    line.description = description
     line.amount = amount
     line.trip_date = None
 
@@ -442,7 +499,7 @@ def save_choice(trip: Trip, stay_number: int, body: LodgingChoiceIn, db: Session
 
     row.city = stay.city  # what this choice is for, in case a new plan moves the stays
     db.add(row)
-    _sync_cost_line(trip, row, db, one_stay)
+    _sync_cost_line(trip, row, db, line_description(stay, one_stay))
     return row
 
 
@@ -456,6 +513,92 @@ def remove_choice(trip: Trip, stay_number: int, db: Session) -> None:
     if line is not None:
         db.flush()  # the row points at the line, so it goes first
         db.delete(line)
+
+
+# --- Splitting a stay (one city, more than one hotel) ----------------------
+class SplitError(Exception):
+    """A split that can't be made. The message is shown to the traveler."""
+
+
+class SplitNotFound(Exception):
+    """No split on that night."""
+
+
+def _renumber(rows: list[TripLodging], step: int, db: Session) -> None:
+    """Move choices one stay number up (+1) or down (-1), one at a time so (trip, stay) stays unique."""
+    for row in sorted(rows, key=lambda row: row.stay_number, reverse=step > 0):
+        row.stay_number += step
+        db.flush()
+
+
+def _refresh_lines(trip: Trip, db: Session) -> None:
+    """After a split or merge, every choice's line gets its stay's description and current amount."""
+    stays = trip_stays(trip, db)
+    rows = choice_rows(trip, db)
+    for stay in stays:
+        if stay.number in rows:
+            _sync_cost_line(trip, rows[stay.number], db, line_description(stay, len(stays) == 1))
+
+
+def split_stay(trip: Trip, night: date, db: Session) -> None:
+    """Split the stay holding `night`: a second hotel in the same city from that night on. The caller commits.
+
+    Later stays' choices move up one number with their stays. The first part keeps the stay's choice,
+    shortened to its nights (and its Lodging line with it); the second part starts with none.
+    """
+    if night not in night_dates(trip):
+        raise NightNotFound
+    stays = trip_stays(trip, db)
+    stay = next((s for s in stays if s.check_in <= night < s.check_in + timedelta(days=s.nights)), None)
+    if stay is None:
+        raise SplitError("That night is spent travelling, so there's no stay to split.")
+    if night == stay.check_in:
+        raise SplitError("Pick a night after the stay's first night, so each part has at least one.")
+    if len(stays) >= MAX_STAYS:
+        raise SplitError(f"A trip can have at most {MAX_STAYS} stays, counting split ones.")
+
+    rows = choice_rows(trip, db)
+    _renumber([row for number, row in rows.items() if number > stay.number], +1, db)
+    split = db.scalar(select(TripStaySplit).where(TripStaySplit.trip_id == trip.id, TripStaySplit.night_date == night))
+    split = split or TripStaySplit(trip_id=trip.id, night_date=night)
+    split.city = stay.city  # (an earlier split here that a new plan had set aside applies again)
+    db.add(split)
+    db.flush()
+
+    first = rows.get(stay.number)
+    first_nights = (night - stay.check_in).days
+    if first is not None and first.nights is not None and first.nights > first_nights:
+        first.nights = first_nights
+    _refresh_lines(trip, db)
+
+
+def merge_stay(trip: Trip, night: date, db: Session) -> None:
+    """Undo the split at `night`: the two parts are one stay again. The caller commits.
+
+    The first part's choice is kept. If only the second part has one, it's kept and stretched over
+    the whole stay. If both have one, the second part's goes, with its Lodging line.
+    """
+    split = db.scalar(select(TripStaySplit).where(TripStaySplit.trip_id == trip.id, TripStaySplit.night_date == night))
+    if split is None:
+        raise SplitNotFound
+    second = next((s for s in trip_stays(trip, db) if s.split_night == night), None)
+    db.delete(split)
+    db.flush()
+    if second is None:
+        return  # a new plan had already set it aside: nothing to put back together
+
+    first_number = second.number - 1
+    rows = choice_rows(trip, db)
+    first_row, second_row = rows.get(first_number), rows.get(second.number)
+    if first_row is not None and second_row is not None:
+        remove_choice(trip, second.number, db)
+    elif second_row is not None:
+        second_row.stay_number = first_number
+        if second_row.nights is not None:
+            second_row.nights = trip_stays(trip, db)[first_number - 1].nights
+    db.flush()
+    _renumber([row for number, row in choice_rows(trip, db).items() if number > second.number], -1, db)
+    _refresh_lines(trip, db)
 
 
 # --- Responses ------------------------------------------------------------
@@ -509,7 +652,7 @@ def stay_out(
     stay: Stay,
     rows: dict[int, TripLodging],
     lodging_left: float | None,
-    one_stay: bool,
+    stay_count: int,
     hotel: places.Hotel | None = None,
 ) -> StayOut:
     row = rows.get(stay.number)
@@ -522,8 +665,12 @@ def stay_out(
         nights=stay.nights,
         budget_left=left,
         choice=choice_out(row, left, stay.nights, hotel) if row else None,
-        plan_changed=bool(row) and plan_changed(row, stay, trip, one_stay),
+        plan_changed=bool(row) and plan_changed(row, stay, trip, stay_count == 1),
         choice_city=row.city if row else None,
+        part=stay.part,
+        parts=stay.parts,
+        merge_night=stay.split_night,
+        can_split=stay.nights >= 2 and stay_count < MAX_STAYS,
     )
 
 
@@ -533,13 +680,12 @@ def lodging_overview(trip: Trip, db: Session) -> LodgingOverviewOut:
     stays = trip_stays(trip, db, nights)
     rows = choice_rows(trip, db)
     lodging_left = lodging_budget_left(trip, db)
-    one_stay = len(stays) == 1
     return LodgingOverviewOut(
         trip_id=trip.id,
         currency=PLAN_CURRENCY,
         lodging_budget_left=lodging_left,
         nights=[NightOut(date=night.date, in_transit=night.in_transit, set_by=night.set_by) for night in nights],
-        stays=[stay_out(trip, stay, rows, lodging_left, one_stay) for stay in stays],
+        stays=[stay_out(trip, stay, rows, lodging_left, len(stays)) for stay in stays],
         # Choices for stays a regenerated plan no longer has: shown so they can be removed.
         earlier_choices=[
             EarlierChoiceOut(
@@ -597,7 +743,7 @@ def stay_page(trip: Trip, stay_number: int, db: Session, fresh: bool = False) ->
         trip_id=trip.id,
         currency=PLAN_CURRENCY,
         lodging_budget_left=lodging_left,
-        stay=stay_out(trip, stay, rows, lodging_left, len(stays) == 1, chosen),
+        stay=stay_out(trip, stay, rows, lodging_left, len(stays), chosen),
         suggestions=rank(suggestions, has_budget=left is not None),
         suggestions_status=search.status,
         fit_note=fit_note,

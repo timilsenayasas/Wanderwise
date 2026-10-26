@@ -15,14 +15,18 @@ from app.lodging import (
     MAX_STAYS,
     ChoiceError,
     NightNotFound,
+    SplitError,
+    SplitNotFound,
     StayNotFound,
     clear_stale_coords,
     hotel_names,
     hotel_pins,
     lodging_overview,
+    merge_stay,
     remove_choice,
     save_choice,
     set_night_transit,
+    split_stay,
     stay_page,
 )
 from app.models import Trip
@@ -148,3 +152,34 @@ def set_night(trip_id: int, night: date, body: NightIn, user: CurrentUser, db: D
 def reset_night(trip_id: int, night: date, user: CurrentUser, db: DbSession) -> LodgingOverviewOut:
     """Go back to the plan's say on whether this night is spent travelling."""
     return _set_night(trip_id, night, None, user, db)
+
+
+# --- Splitting a stay -----------------------------------------------------
+@router.put("/{trip_id}/splits/{night}", response_model=LodgingOverviewOut)
+def split_a_stay(trip_id: int, night: date, user: CurrentUser, db: DbSession) -> LodgingOverviewOut:
+    """Split the stay holding this night: a second hotel in the same city from this night on.
+
+    The first part keeps the choice (shortened to its nights); later stays keep theirs.
+    Kept when the plan is regenerated. Answers with the overview.
+    """
+    trip = get_own_trip(trip_id, user, db)
+    try:
+        split_stay(trip, night, db)
+    except NightNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Night not found") from None
+    except SplitError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
+    db.commit()
+    return lodging_overview(trip, db)
+
+
+@router.delete("/{trip_id}/splits/{night}", response_model=LodgingOverviewOut)
+def merge_a_stay(trip_id: int, night: date, user: CurrentUser, db: DbSession) -> LodgingOverviewOut:
+    """Merge the parts split at this night back into one stay (see lodging.merge_stay for the choices)."""
+    trip = get_own_trip(trip_id, user, db)
+    try:
+        merge_stay(trip, night, db)
+    except SplitNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Split not found") from None
+    db.commit()
+    return lodging_overview(trip, db)
