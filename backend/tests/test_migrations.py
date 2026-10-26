@@ -1,17 +1,26 @@
 
 """Database migrations (Alembic) stay in sync with the models and keep old data."""
 
+from alembic import command
 from alembic.autogenerate import compare_metadata
 from alembic.migration import MigrationContext
 from sqlalchemy import create_engine, inspect, text
 
 import app.models  # noqa: F401  (register every table on Base.metadata)
 from app.database import Base
-from app.db_migrate import upgrade_database
+from app.db_migrate import alembic_config, upgrade_database
 
 
 def make_engine(tmp_path):
     return create_engine(f"sqlite:///{tmp_path / 'migrate.db'}")
+
+
+def upgrade_to(engine, revision: str) -> None:
+    """Migrate only up to `revision`, to set up a database from before a later migration."""
+    config = alembic_config()
+    with engine.begin() as connection:
+        config.attributes["connection"] = connection
+        command.upgrade(config, revision)
 
 
 def test_migrations_match_models(tmp_path):
@@ -133,3 +142,45 @@ def test_existing_database_with_empty_version_table_is_adopted(tmp_path):
         "cost_items",
         "alembic_version",
     } <= tables
+
+
+def test_existing_cost_items_become_plan_lines_with_fixed_categories(tmp_path):
+    """Cost lines saved before A2 are marked "plan" and moved onto the fixed categories."""
+    engine = make_engine(tmp_path)
+    upgrade_to(engine, "ae137b358740")  # the revision before source/trip_date
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users (id, email, password_hash, name, created_at, updated_at) "
+                "VALUES (1, 'old@example.com', 'x', 'Old User', '2026-10-01', '2026-10-01')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO trips (id, user_id, origin, destination, start_date, end_date, travelers, created_at) "
+                "VALUES (1, 1, 'Dallas', 'Chicago', '2026-10-10', '2026-10-11', 1, '2026-10-01')"
+            )
+        )
+        for category in ("meal", "Sightseeing ", "nature", "transportation", "shopping", "lodging", "surfing"):
+            connection.execute(
+                text(
+                    "INSERT INTO cost_items (trip_id, category, amount, created_at) "
+                    "VALUES (1, :category, 10, '2026-10-01')"
+                ),
+                {"category": category},
+            )
+
+    upgrade_database(engine)
+
+    with engine.connect() as connection:
+        rows = connection.execute(
+            text("SELECT category, source, trip_date FROM cost_items ORDER BY id")
+        ).all()
+
+    engine.dispose()
+
+    assert [row.category for row in rows] == [
+        "food", "activities", "activities", "transport", "other", "other", "other",
+    ]
+    assert {(row.source, row.trip_date) for row in rows} == {("plan", None)}
