@@ -338,6 +338,7 @@ class LodgingChoiceOut(BaseModel):
     nightly_price: float | None
     nights: int | None
     total: float | None  # nightly_price x nights, the Lodging cost line's amount
+    fit: LodgingFit | None  # total against the budget left for lodging; None for skips or without a budget
     nights_exceed_trip: bool  # the trip's dates were shortened after choosing
 
 

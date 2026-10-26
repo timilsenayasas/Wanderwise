@@ -12,6 +12,7 @@ from app.lodging import (
     choice_out,
     clear_stale_coords,
     hotel_pin,
+    lodging_budget_left,
     lodging_page,
     remove_choice,
     save_choice,
@@ -48,7 +49,7 @@ def set_lodging(trip_id: int, body: LodgingChoiceIn, user: CurrentUser, db: DbSe
     except ChoiceError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     db.commit()
-    return choice_out(trip, db, found=[], look_up=False)
+    return choice_out(trip, db, found=[], left=lodging_budget_left(trip, db), look_up=False)
 
 
 @router.get("/{trip_id}/lodging/pin", response_model=LodgingPinOut | None)

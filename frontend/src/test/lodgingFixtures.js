@@ -62,6 +62,7 @@ export function hotelChoice(placeId, nightly, nights = 4, overrides = {}) {
     nightly_price: nightly,
     nights,
     total: nightly * nights,
+    fit: 'fits',
     nights_exceed_trip: false,
     ...overrides,
   };
@@ -80,5 +81,6 @@ export function skipChoice(reason) {
     nightly_price: null,
     nights: null,
     total: null,
+    fit: null,
   };
 }

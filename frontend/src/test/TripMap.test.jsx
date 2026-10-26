@@ -193,9 +193,9 @@ describe('Your hotel on the map', () => {
 
     await screen.findByRole('button', { name: 'Marker Your hotel' });
 
-    const [bounds] = map.fitBounds.mock.calls.at(-1);
-    expect(bounds.points).toContainEqual({ lat: 41.9, lng: -87.62 });
-    expect(bounds.points).toHaveLength(4);
+    // The map refits just after the hotel renders, so wait for that fit.
+    await waitFor(() => expect(map.fitBounds.mock.calls.at(-1)[0].points).toHaveLength(4));
+    expect(map.fitBounds.mock.calls.at(-1)[0].points).toContainEqual({ lat: 41.9, lng: -87.62 });
   });
 
   it('lists the hotel first, so it can be picked with the keyboard', async () => {
@@ -236,7 +236,8 @@ describe('Your hotel on the map', () => {
     render(<TripMap plan={null} tripId={7} onShowItinerary={onShowItinerary} />);
 
     expect(await screen.findByRole('button', { name: 'Marker Your hotel' })).toBeInTheDocument();
-    expect(map.setCenter).toHaveBeenCalledWith({ lat: 41.9, lng: -87.62 }); // just one place: centered
+    // The map effect runs just after the marker renders, so wait for it.
+    await waitFor(() => expect(map.setCenter).toHaveBeenCalledWith({ lat: 41.9, lng: -87.62 })); // one place: centered
     expect(screen.queryByRole('heading', { name: 'No plan yet' })).not.toBeInTheDocument();
 
     await userEvent.click(screen.getByRole('button', { name: /go to itinerary/i }));

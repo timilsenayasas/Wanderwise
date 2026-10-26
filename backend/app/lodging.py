@@ -304,9 +304,12 @@ def hotel_out(hotel: places.Hotel) -> dict:
 
 
 def choice_out(
-    trip: Trip, db: Session, found: list[places.Hotel], look_up: bool = True
+    trip: Trip, db: Session, found: list[places.Hotel], left: float | None, look_up: bool = True
 ) -> LodgingChoiceOut | None:
-    """The traveler's current choice. A picked hotel's details come from this search, or are looked up."""
+    """The traveler's current choice. A picked hotel's details come from this search, or are looked up.
+
+    left is the budget left for lodging, for the stay's own fit (its saved price x its nights).
+    """
     row = choice_row(trip, db)
     if row is None:
         return None
@@ -331,6 +334,7 @@ def choice_out(
         nightly_price=row.nightly_price,
         nights=row.nights,
         total=total,
+        fit=budget_fit(total, left),
         nights_exceed_trip=row.nights is not None and row.nights > trip_nights(trip),
     )
 
@@ -367,7 +371,7 @@ def lodging_page(trip: Trip, db: Session, fresh: bool = False) -> LodgingOut:
         currency=PLAN_CURRENCY,
         nights=nights,
         lodging_budget_left=left,
-        choice=choice_out(trip, db, search.hotels),
+        choice=choice_out(trip, db, search.hotels, left),
         suggestions=rank(suggestions, has_budget=left is not None),
         suggestions_status=search.status,
         fit_note=fit_note,

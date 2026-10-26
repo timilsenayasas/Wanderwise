@@ -170,7 +170,7 @@ export function MapsLink({ hotel }) {
   );
 }
 
-function FitBadge({ fit }) {
+export function FitBadge({ fit }) {
   return <span className={`fit-badge fit-badge--${fit}`}>{FIT_LABELS[fit]}</span>;
 }
 

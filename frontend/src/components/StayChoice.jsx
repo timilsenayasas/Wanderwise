@@ -6,7 +6,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Button from './Button';
 import Card from './Card';
-import { HotelMeta, HotelPhoto, MapsLink } from './HotelCard';
+import { FitBadge, HotelMeta, HotelPhoto, MapsLink } from './HotelCard';
 import Icon from './Icon';
 import { formatCurrency } from '../lib/format';
 import { choiceName, ESTIMATE_NOTE, nightsText, SKIP_LABELS } from '../lib/lodging';
@@ -14,6 +14,15 @@ import './StayChoice.css';
 
 export const STAY_TITLE_ID = 'stay-choice-title';
 export const CHANGE_BUTTON_ID = 'stay-change';
+
+/**
+ * What the stay's nightly price is: still our estimate, an estimate that has since changed
+ * (Refresh re-prices hotels, but the stay keeps the price it was chosen at), or the traveler's own.
+ */
+function stayPriceLabel(choice, estimate) {
+  if (choice.choice !== 'hotel' || estimate == null) return 'Your price';
+  return estimate === choice.nightly_price ? 'Estimated' : 'Price when you chose it';
+}
 
 export default function StayChoice({ choice, hotel, estimate, tripNights, editForm, onChange, onRemove, onShowSuggestions }) {
   const [confirming, setConfirming] = useState(false);
@@ -116,8 +125,7 @@ export default function StayChoice({ choice, hotel, estimate, tripNights, editFo
     );
   }
 
-  // "Estimated" only while the price is still our estimate; a price they entered is theirs.
-  const isEstimate = choice.choice === 'hotel' && estimate != null && estimate === choice.nightly_price;
+  const priceLabel = stayPriceLabel(choice, estimate);
 
   return (
     <Card as="section" padding="sm" className="stay-choice" aria-labelledby={STAY_TITLE_ID}>
@@ -144,9 +152,10 @@ export default function StayChoice({ choice, hotel, estimate, tripNights, editFo
             <span>
               {formatCurrency(choice.total)} total, {nightsText(choice.nights)}
             </span>
-            <span className="stay-choice__label" title={isEstimate ? ESTIMATE_NOTE : undefined}>
-              {isEstimate ? 'Estimated' : 'Your price'}
+            <span className="stay-choice__label" title={priceLabel === 'Estimated' ? ESTIMATE_NOTE : undefined}>
+              {priceLabel}
             </span>
+            {choice.fit && <FitBadge fit={choice.fit} />}
           </div>
         </div>
 

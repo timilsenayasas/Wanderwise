@@ -563,6 +563,7 @@ def test_picking_a_hotel_uses_its_estimate_for_the_whole_trip(client, monkeypatc
         "nightly_price": 140,
         "nights": 4,
         "total": 560,
+        "fit": "fits",
         "nights_exceed_trip": False,
     }
     [(_, amount, source, description)] = lodging_lines(trip_id)
@@ -714,6 +715,26 @@ def test_regenerating_the_plan_keeps_the_lodging_line(client, monkeypatch):
 
     assert lodging_lines(trip_id) == [line]
     assert stored_choice(trip_id).cost_item_id == line[0]
+
+
+def test_the_stay_has_its_own_fit_from_its_saved_price_and_nights(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client, budget=520)  # 520 left for lodging; up to 572 is "slightly over"
+    suggest(client, monkeypatch, trip_id)
+
+    # The stay's own total, not the suggestion's (which is the estimate x the whole trip).
+    assert put_choice(client, trip_id, choice="hotel", place_id="p1", nights=3).json()["fit"] == "fits"  # 420
+    assert put_choice(client, trip_id, choice="hotel", place_id="p1").json()["fit"] == "slightly_over"  # 560
+    assert put_choice(client, trip_id, choice="own", name="Inn", nightly_price=200, nights=3).json()["fit"] == "over"
+    assert get_lodging(client, trip_id)["choice"]["fit"] == "over"  # GET agrees with PUT
+    assert put_choice(client, trip_id, choice="skip", reason="have_place").json()["fit"] is None
+
+
+def test_without_a_budget_the_stay_has_no_fit(client):
+    register(client)
+    trip_id = create_trip(client, budget=None)
+
+    assert put_choice(client, trip_id, choice="own", name="Inn", nightly_price=80, nights=2).json()["fit"] is None
 
 
 def test_the_choice_shows_in_the_budget(client, monkeypatch):

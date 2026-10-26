@@ -176,6 +176,95 @@ describe('Choosing', () => {
   });
 });
 
+describe('The chosen hotel in Suggested hotels', () => {
+  /** "chosen" (class, check badge, disabled Chosen button, no Choose) or "plain" (a Choose button). */
+  function cardState(name) {
+    const hotel = card(name);
+    const chosen =
+      hotel.classList.contains('hotel-card--chosen') &&
+      within(hotel).queryByRole('img', { name: 'Chosen' }) !== null &&
+      within(hotel).getByRole('button', { name: /chosen/i }).disabled &&
+      within(hotel).queryByRole('button', { name: `Choose ${name}` }) === null;
+    if (chosen) return 'chosen';
+    return within(hotel).queryByRole('button', { name: `Choose ${name}` }) ? 'plain' : 'neither';
+  }
+
+  it('shows a hotel chosen earlier as chosen when the tab opens', async () => {
+    await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
+
+    expect(cardState('The Drake')).toBe('chosen');
+    expect(cardState('Hotel Lux')).toBe('plain');
+  });
+
+  it('moves the chosen state when another hotel is chosen', async () => {
+    await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
+    api.put.mockResolvedValue(hotelChoice('p2', 300));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Choose Hotel Lux' }));
+
+    await waitFor(() => expect(cardState('Hotel Lux')).toBe('chosen'));
+    expect(cardState('The Drake')).toBe('plain');
+  });
+
+  it('keeps the chosen state after Refresh', async () => {
+    await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
+    api.post.mockResolvedValue(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
+
+    await userEvent.click(screen.getByRole('button', { name: /refresh suggestions/i }));
+
+    await waitFor(() => expect(cardState('The Drake')).toBe('chosen'));
+  });
+
+  it('goes back to Choose when the stay is removed', async () => {
+    await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
+    api.delete.mockResolvedValue(null);
+
+    await userEvent.click(within(yourStay()).getByRole('button', { name: 'Remove' }));
+    await userEvent.click(within(yourStay()).getAllByRole('button', { name: 'Remove' })[0]);
+
+    await waitFor(() => expect(cardState('The Drake')).toBe('plain'));
+  });
+});
+
+describe('Your stay price and fit', () => {
+  it('shows the fit badge for the stay', async () => {
+    await openWith(lodgingPage({ choice: hotelChoice('p2', 300, 4, { hotel: LUX, fit: 'slightly_over' }) }));
+
+    expect(within(yourStay()).getByText('Slightly over')).toHaveClass('fit-badge');
+  });
+
+  it('shows no fit badge for a skip or without a budget', async () => {
+    await openWith(lodgingPage({ choice: skipChoice('have_place') }));
+    expect(within(yourStay()).queryByText(/fits budget|slightly over|over budget/i)).not.toBeInTheDocument();
+  });
+
+  it('says "Estimated" while the saved price is still the estimate', async () => {
+    await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
+
+    expect(within(yourStay()).getByText('Estimated')).toHaveAttribute('title', 'Estimated, actual prices may vary.');
+    expect(within(yourStay()).queryByText('Price when you chose it')).not.toBeInTheDocument();
+  });
+
+  it('says "Price when you chose it" once the estimate has changed', async () => {
+    await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
+    const repriced = { ...DRAKE, nightly_estimate: 150, stay_total: 600 };
+    api.post.mockResolvedValue(lodgingPage({ suggestions: [repriced, LUX], choice: hotelChoice('p1', 140, 4) }));
+
+    await userEvent.click(screen.getByRole('button', { name: /refresh suggestions/i }));
+
+    expect(await within(yourStay()).findByText('Price when you chose it')).toBeInTheDocument();
+    expect(within(yourStay()).getByText('$140 / night')).toBeInTheDocument(); // the stay keeps its price
+    expect(within(card('The Drake')).getByText('$150 / night')).toBeInTheDocument();
+  });
+
+  it('says "Your price" for my own hotel', async () => {
+    await openWith(lodgingPage({ choice: ownChoice('Lake House', 80, 4) }));
+
+    expect(within(yourStay()).getByText('Your price')).toBeInTheDocument();
+    expect(within(yourStay()).getByText('Fits budget')).toBeInTheDocument();
+  });
+});
+
 describe('Your own hotel', () => {
   it('adds my own hotel with a live total, and checks the fields first', async () => {
     await openWith();
@@ -283,7 +372,7 @@ describe('Skipping, changing and removing', () => {
     });
     await waitFor(() => expect(within(yourStay()).getByRole('button', { name: 'Change' })).toHaveFocus());
     expect(within(yourStay()).getByText('$240 total, 2 nights')).toBeInTheDocument();
-    expect(within(yourStay()).getByText('Your price')).toBeInTheDocument();
+    expect(within(yourStay()).getByText('Price when you chose it')).toBeInTheDocument(); // 120, not today's 140
   });
 
   it('Remove asks first, starting on Cancel, then removes the stay', async () => {

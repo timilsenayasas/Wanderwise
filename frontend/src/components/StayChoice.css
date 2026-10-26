@@ -87,6 +87,10 @@
   font-size: var(--text-xs);
 }
 
+.stay-choice__price .fit-badge {
+  margin-top: var(--space-2);
+}
+
 .stay-choice__note {
   display: flex;
   flex-wrap: wrap;
