@@ -7,7 +7,7 @@ Changing a table here? Create a migration afterwards (see README, "Database chan
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -215,6 +215,108 @@ class CostItem(Base):
         nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
+# TripLodging.choice: a suggested hotel, the traveler's own hotel, or no hotel to book.
+LODGING_HOTEL = "hotel"
+LODGING_OWN = "own"
+LODGING_SKIP = "skip"
+
+
+class TripLodging(Base):
+    """Where to stay: the traveler's lodging choice, one row per trip.
+
+    Google's Places terms: only the place ID may be kept. Names, ratings and photos are
+    fetched fresh when shown, and coordinates are refreshed or cleared after 30 days.
+    """
+
+    __tablename__ = "trip_lodging"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True
+    )
+    trip_id: Mapped[int] = mapped_column(
+        ForeignKey("trips.id", ondelete="CASCADE"),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+    choice: Mapped[str] = mapped_column(
+        String(10), nullable=False
+    )
+    # "have_place" or "not_needed" when choice is "skip".
+    skip_reason: Mapped[str | None] = mapped_column(
+        String(20), nullable=True
+    )
+    place_id: Mapped[str | None] = mapped_column(
+        String(255), nullable=True
+    )
+    # The traveler's own hotel name (choice "own"). Never a Google name.
+    custom_name: Mapped[str | None] = mapped_column(
+        String(200), nullable=True
+    )
+    nightly_price: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    nights: Mapped[int | None] = mapped_column(
+        Integer, nullable=True
+    )
+    latitude: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    longitude: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    coords_fetched_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    # The user Lodging cost line this choice keeps in step (Budget tab).
+    cost_item_id: Mapped[int | None] = mapped_column(
+        ForeignKey("cost_items.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        onupdate=utcnow,
+        nullable=False,
+    )
+
+
+class TripHotelEstimate(Base):
+    """Where to stay: a hotel suggested for a trip, with our AI nightly price estimate (USD).
+
+    Our own data, keyed by Google's place ID. A row means "suggested for this trip", so a
+    pick can be checked; nightly_price is empty when the estimate failed.
+    """
+
+    __tablename__ = "trip_hotel_estimates"
+    __table_args__ = (UniqueConstraint("trip_id", "place_id"),)
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True
+    )
+    trip_id: Mapped[int] = mapped_column(
+        ForeignKey("trips.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    place_id: Mapped[str] = mapped_column(
+        String(255), nullable=False
+    )
+    nightly_price: Mapped[float | None] = mapped_column(
+        Float, nullable=True
+    )
+    estimated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=utcnow,
         nullable=False,
