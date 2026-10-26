@@ -26,6 +26,7 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
+from app.rate_limit import login_limiter  # noqa: E402
 from app.services import geocoding  # noqa: E402
 
 VALID_USER = {"email": "Ada@Example.com", "password": "correct-horse-battery", "name": "Ada"}
@@ -40,6 +41,14 @@ def no_real_geocoding(monkeypatch):
         pytest.fail(f"Test tried to call the real Geocoding API for {query!r}")
 
     monkeypatch.setattr(geocoding, "_fetch", refuse)
+
+
+@pytest.fixture(autouse=True)
+def fresh_login_limiter():
+    """Failed-login counts are kept in memory, so clear them between tests."""
+    login_limiter.reset()
+    yield
+    login_limiter.reset()
 
 
 @pytest.fixture()

@@ -1,12 +1,22 @@
 """Auth: register, login, logout, me, password storage."""
 
+import hashlib
+import re
+import threading
+from datetime import timedelta
+
+import jwt
 import pytest
 from conftest import VALID_USER, register
+from pydantic import ValidationError
 
+from app import config, security
+from app.config import Settings, settings
 from app.database import get_db
 from app.main import app
-from app.models import User
-from app.security import SESSION_COOKIE
+from app.models import User, utcnow
+from app.rate_limit import MAX_ATTEMPTS, WINDOW_SECONDS, LoginLimiter, login_limiter
+from app.security import SESSION_COOKIE, decode_access_token, session_deadline
 
 
 def test_health(client):
@@ -121,3 +131,238 @@ def test_password_is_hashed_with_argon2id(client):
     user = db.query(User).one()
     assert user.password_hash.startswith("$argon2id$")
     assert user.password_hash != VALID_USER["password"]
+
+
+# --- JWT secret check at startup -----------------------------------------
+STRONG_SECRET = "x" * config.MIN_JWT_SECRET_LENGTH
+
+
+def make_settings(**values) -> Settings:
+    # _env_file=None so a developer's own backend/.env can't change the result.
+    return Settings(_env_file=None, **values)
+
+
+@pytest.mark.parametrize("secret", ["change-me", "x" * (config.MIN_JWT_SECRET_LENGTH - 1)])
+def test_startup_refuses_weak_secret_when_deployed(secret):
+    with pytest.raises(ValidationError, match="Refusing to start"):
+        make_settings(jwt_secret=secret, cookie_secure=True)
+
+
+def test_weak_secret_only_warns_in_local_dev(caplog):
+    settings = make_settings(jwt_secret="change-me", cookie_secure=False)
+    assert settings.jwt_secret == "change-me"
+    assert "JWT_SECRET" in caplog.text
+
+
+def test_strong_secret_allowed_when_deployed():
+    assert make_settings(jwt_secret=STRONG_SECRET, cookie_secure=True).jwt_secret == STRONG_SECRET
+
+
+@pytest.mark.parametrize("cookie_secure", [False, True])
+def test_leaked_secret_always_refused(monkeypatch, cookie_secure):
+    # Stand-in for the real leaked value, which never appears in the code.
+    leaked = "pretend-this-secret-was-committed-to-git-history"
+    monkeypatch.setattr(config, "LEAKED_JWT_SECRET_SHA256", hashlib.sha256(leaked.encode()).hexdigest())
+    with pytest.raises(ValidationError, match="git history"):
+        make_settings(jwt_secret=leaked, cookie_secure=cookie_secure)
+
+
+# --- Session renewal and the 7-day cap ------------------------------------
+# PyJWT checks exp against the real clock, so these tests fake the app clock
+# *backwards* (log in "in the past") instead of waiting.
+SESSION = timedelta(minutes=settings.jwt_expire_minutes)
+MAX_SESSION = timedelta(days=settings.session_max_days)
+
+
+def whole_seconds_now():
+    return utcnow().replace(microsecond=0)
+
+
+def max_age(response) -> int:
+    return int(re.search(r"Max-Age=(\d+)", response.headers["set-cookie"]).group(1))
+
+
+def use_token_issued_at(client, monkeypatch, issued_at, user_id, auth_time):
+    """Replace the session cookie with one the server issued at `issued_at`."""
+    with monkeypatch.context() as m:
+        m.setattr(security, "utcnow", lambda: issued_at)
+        token, _ = security.create_access_token(user_id, auth_time)
+    client.cookies.clear()
+    client.cookies.set(SESSION_COOKIE, token)
+    return decode_access_token(token)
+
+
+def test_login_cookie_max_age_matches_token_expiry(client):
+    r = register(client)
+    claims = decode_access_token(r.cookies[SESSION_COOKIE])
+    assert claims.expires_at - claims.auth_time == SESSION
+    assert max_age(r) == SESSION.total_seconds()
+
+
+def test_fresh_session_is_not_renewed(client):
+    register(client)
+    r = client.get("/api/auth/me")
+    assert r.status_code == 200
+    assert "set-cookie" not in r.headers
+
+
+def test_active_session_is_renewed_after_half_its_life(client, monkeypatch):
+    user_id = register(client).json()["id"]
+    login = whole_seconds_now() - timedelta(minutes=31)
+    before = use_token_issued_at(client, monkeypatch, login, user_id, auth_time=login)
+
+    r = client.get("/api/auth/me")
+    assert r.status_code == 200
+    after = decode_access_token(r.cookies[SESSION_COOKIE])
+    assert after.auth_time == before.auth_time  # renewing doesn't restart the 7-day cap
+    assert after.expires_at > before.expires_at
+    assert max_age(r) == SESSION.total_seconds()
+
+
+def test_renewal_never_goes_past_the_cap(client, monkeypatch):
+    user_id = register(client).json()["id"]
+    now = whole_seconds_now()
+    # Logged in almost 7 days ago; the cap is 45 minutes away.
+    auth_time = now - MAX_SESSION + timedelta(minutes=45)
+    use_token_issued_at(client, monkeypatch, now - timedelta(minutes=31), user_id, auth_time)
+
+    r = client.get("/api/auth/me")
+    renewed = decode_access_token(r.cookies[SESSION_COOKIE])
+    assert renewed.expires_at == session_deadline(auth_time)
+    assert max_age(r) <= 45 * 60
+
+    # Already at the cap, so there's nothing to renew.
+    assert "set-cookie" not in client.get("/api/auth/me").headers
+
+
+def test_session_past_the_cap_is_rejected(client, monkeypatch):
+    user_id = register(client).json()["id"]
+    now = whole_seconds_now()
+    use_token_issued_at(client, monkeypatch, now, user_id, auth_time=now - MAX_SESSION - timedelta(minutes=1))
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_old_token_without_auth_time_is_rejected(client):
+    user_id = register(client).json()["id"]
+    old_style = jwt.encode(
+        {"sub": str(user_id), "exp": utcnow() + SESSION}, settings.jwt_secret, algorithm=security.JWT_ALGORITHM
+    )
+    client.cookies.clear()
+    client.cookies.set(SESSION_COOKIE, old_style)
+    assert client.get("/api/auth/me").status_code == 401
+
+
+def test_other_protected_routes_renew_too(client, monkeypatch):
+    user_id = register(client).json()["id"]
+    login = whole_seconds_now() - timedelta(minutes=31)
+    use_token_issued_at(client, monkeypatch, login, user_id, auth_time=login)
+    r = client.get("/api/trips")
+    assert r.status_code == 200
+    assert SESSION_COOKIE in r.cookies
+
+
+# --- Failed-login limit ---------------------------------------------------
+LOCKED_OUT = "Too many login attempts. Try again in 15 minutes."
+
+
+class FakeClock:
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
+@pytest.fixture()
+def clock(monkeypatch):
+    fake = FakeClock()
+    monkeypatch.setattr(login_limiter, "clock", fake)
+    return fake
+
+
+def login(client, password="wrong-password", email=VALID_USER["email"]):
+    return client.post("/api/auth/login", json={"email": email, "password": password})
+
+
+def fail_logins(client, times=MAX_ATTEMPTS, email=VALID_USER["email"]):
+    for _ in range(times):
+        assert login(client, email=email).status_code == 401
+
+
+@pytest.fixture()
+def registered(client):
+    register(client)
+    client.cookies.clear()
+    return client
+
+
+def test_locked_out_after_too_many_failed_logins(registered, clock):
+    fail_logins(registered)
+    r = login(registered)
+    assert r.status_code == 429
+    assert r.json()["detail"] == LOCKED_OUT
+    assert r.headers["retry-after"] == str(WINDOW_SECONDS)
+
+
+def test_correct_password_still_blocked_during_lockout(registered, clock):
+    fail_logins(registered)
+    clock.advance(14 * 60)
+    r = login(registered, password=VALID_USER["password"])
+    assert r.status_code == 429
+    assert r.json()["detail"] == "Too many login attempts. Try again in 1 minute."
+    assert SESSION_COOKIE not in r.cookies
+
+
+def test_login_works_again_after_the_window(registered, clock):
+    fail_logins(registered)
+    clock.advance(WINDOW_SECONDS)
+    assert login(registered, password=VALID_USER["password"]).status_code == 200
+
+
+def test_successful_login_resets_the_count(registered, clock):
+    fail_logins(registered, times=MAX_ATTEMPTS - 1)
+    assert login(registered, password=VALID_USER["password"]).status_code == 200
+    # Without the reset, the next attempt would be over the limit.
+    fail_logins(registered, times=MAX_ATTEMPTS - 1)
+
+
+def test_lockout_looks_the_same_for_unknown_emails(registered, clock):
+    fail_logins(registered)
+    real = login(registered)
+    fail_logins(registered, email="nobody@example.com")
+    unknown = login(registered, email="nobody@example.com")
+    assert unknown.status_code == real.status_code == 429
+    assert unknown.json() == real.json()
+    assert unknown.headers["retry-after"] == real.headers["retry-after"]
+
+
+def test_lockout_is_per_email(registered, clock):
+    fail_logins(registered, email="someone-else@example.com")
+    assert login(registered, password=VALID_USER["password"]).status_code == 200
+
+
+def test_limiter_keys_are_separate_per_ip():
+    limiter = LoginLimiter(max_attempts=1, clock=FakeClock())
+    assert limiter.hit(("ada@example.com", "1.1.1.1")) == 0
+    assert limiter.hit(("ada@example.com", "1.1.1.1")) > 0
+    assert limiter.hit(("ada@example.com", "2.2.2.2")) == 0
+
+
+def test_parallel_attempts_cannot_exceed_the_limit():
+    limiter = LoginLimiter(clock=FakeClock())
+    allowed = []
+    start = threading.Barrier(20)
+
+    def attempt():
+        start.wait()
+        allowed.append(limiter.hit(("ada@example.com", "1.1.1.1")) == 0)
+
+    threads = [threading.Thread(target=attempt) for _ in range(20)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert allowed.count(True) == MAX_ATTEMPTS

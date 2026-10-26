@@ -5,16 +5,28 @@
  * itself lives in an httpOnly cookie the browser manages — we never touch the
  * token in JavaScript and never store it in localStorage.
  *
- *   const { user, loading, login, register, logout } = useAuth();
+ * If any API call later gets a 401, the session has expired: we clear the user
+ * and set sessionExpired, so ProtectedRoute sends them to /login with a message.
+ *
+ *   const { user, loading, sessionExpired, login, register, logout } = useAuth();
  */
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { api, ApiError } from '../api/client';
+import { api, ApiError, setUnauthorizedHandler } from '../api/client';
 
 const AuthContext = createContext(null);
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [sessionExpired, setSessionExpired] = useState(false);
+
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      setUser(null);
+      setSessionExpired(true);
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -35,12 +47,14 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (email, password) => {
     const me = await api.post('/auth/login', { email, password });
     setUser(me);
+    setSessionExpired(false);
     return me;
   }, []);
 
   const register = useCallback(async ({ name, email, password }) => {
     const me = await api.post('/auth/register', { name, email, password });
     setUser(me);
+    setSessionExpired(false);
     return me;
   }, []);
 
@@ -49,12 +63,13 @@ export function AuthProvider({ children }) {
       await api.post('/auth/logout');
     } finally {
       setUser(null);
+      setSessionExpired(false); // logging out on purpose isn't "expired"
     }
   }, []);
 
   const value = useMemo(
-    () => ({ user, loading, login, register, logout }),
-    [user, loading, login, register, logout],
+    () => ({ user, loading, sessionExpired, login, register, logout }),
+    [user, loading, sessionExpired, login, register, logout],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

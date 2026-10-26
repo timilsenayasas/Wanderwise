@@ -9,6 +9,7 @@ import { api } from '../api/client';
 
 vi.mock('../api/client', () => ({
   api: {
+    get: vi.fn(),
     post: vi.fn(),
   },
 }));
@@ -75,6 +76,12 @@ async function fillValidForm(user) {
 describe('New Trip page', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    api.get.mockResolvedValue({
+      home_city: '',
+      interests: '',
+      default_budget: null,
+      travel_style: '',
+  });
   });
 
   it('shows validation errors when the form is submitted empty', async () => {
@@ -150,5 +157,95 @@ describe('New Trip page', () => {
     expect(
       screen.getByTestId('state'),
     ).toHaveTextContent('{"generate":true}');
+  
+});
+it('prefills the New Trip form with saved profile preferences', async () => {
+  api.get.mockResolvedValue({
+    home_city: 'Fort Worth, TX',
+    interests: 'food, museums',
+    default_budget: 2000,
+    travel_style: 'Relaxed',
   });
+
+  renderNewTrip();
+
+  expect(api.get).toHaveBeenCalledWith('/me/preferences');
+
+  expect(await screen.findByDisplayValue('Fort Worth, TX'))
+    .toBeInTheDocument();
+
+  expect(screen.getByLabelText(/budget/i))
+    .toHaveValue(2000);
+
+  expect(screen.getByLabelText(/interests/i))
+    .toHaveValue('food, museums');
+});
+
+
+it('works normally without saved profile preferences', async () => {
+  const user = userEvent.setup();
+
+  renderNewTrip();
+
+  expect(api.get).toHaveBeenCalledWith('/me/preferences');
+
+  expect(await screen.findByLabelText(/origin/i))
+    .toHaveValue('');
+
+  expect(screen.getByLabelText(/budget/i))
+    .toHaveValue(null);
+
+  expect(screen.getByLabelText(/interests/i))
+    .toHaveValue('');
+
+  await fillValidForm(user);
+
+  await user.click(
+    screen.getByRole('button', { name: /create trip/i })
+  );
+
+  expect(api.post).toHaveBeenCalledWith(
+    '/trips',
+    expect.objectContaining({
+      origin: 'Dallas, TX',
+      destination: 'New York, NY',
+      budget: 1500,
+    })
+  );
+});
+
+it('allows users to change prefilled profile values', async () => {
+  const user = userEvent.setup();
+
+  api.get.mockResolvedValue({
+    home_city: 'Fort Worth, TX',
+    interests: 'food, museums',
+    default_budget: 2000,
+    travel_style: 'Relaxed',
+  });
+
+  renderNewTrip();
+
+  const origin = await screen.findByLabelText(/origin/i);
+  const budget = screen.getByLabelText(/budget/i);
+  const interests = screen.getByLabelText(/interests/i);
+
+  expect(origin).toHaveValue('Fort Worth, TX');
+  expect(budget).toHaveValue(2000);
+  expect(interests).toHaveValue('food, museums');
+
+  await user.clear(origin);
+  await user.type(origin, 'Dallas, TX');
+
+  await user.clear(budget);
+  await user.type(budget, '1500');
+
+  await user.clear(interests);
+  await user.type(interests, 'hiking, beaches');
+
+  expect(origin).toHaveValue('Dallas, TX');
+  expect(budget).toHaveValue(1500);
+  expect(interests).toHaveValue('hiking, beaches');
+});
+
 });
