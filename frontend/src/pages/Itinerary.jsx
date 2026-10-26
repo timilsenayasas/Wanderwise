@@ -50,6 +50,27 @@ export default function Itinerary() {
   if (tab === 'stay' && !stayOpened) setStayOpened(true);
   const autoGenerate = useRef(Boolean(location.state?.generate));
   const regenerateRef = useRef(null);
+  // Where the traveler sleeps each night (GET /lodging: no Google calls), for the day cards.
+  const [stays, setStays] = useState(null);
+
+  // Asked again each time the Itinerary shows a plan, so a choice just made on the Stay tab shows up.
+  // It's only extra detail: if it fails, the days just don't say where you sleep.
+  const showingPlan = status === 'ready' && tab === 'itinerary' && Boolean(plan);
+  useEffect(() => {
+    if (!showingPlan) return undefined;
+    let cancelled = false;
+    api
+      .get(`/trips/${tripId}/lodging`)
+      .then((overview) => {
+        if (!cancelled) setStays(overview.stays);
+      })
+      .catch(() => {
+        if (!cancelled) setStays(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showingPlan, plan, tripId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -262,7 +283,7 @@ export default function Itinerary() {
               )}
               {planning && <p className="text-muted trip-page__wait">Planning a new version. This usually takes 5 to 20 seconds.</p>}
 
-              <ItineraryView itinerary={plan} />
+              <ItineraryView itinerary={plan} stays={stays} onShowStay={() => showTab('stay')} />
             </section>
           )}
         </TabPanel>

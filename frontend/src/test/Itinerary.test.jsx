@@ -306,7 +306,8 @@ describe('Trip page tabs', () => {
     mockLoad(savedPlan('Art Institute of Chicago'));
     renderTrip();
     await screen.findByText('Art Institute of Chicago');
-    expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging');
+    // The Itinerary asks for the free overview (where you sleep), but nothing searches Google yet.
+    expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging/stays/1');
 
     await userEvent.click(screen.getByRole('tab', { name: 'Stay' }));
     expect(await screen.findByRole('article', { name: 'The Drake' })).toBeInTheDocument();
@@ -316,9 +317,26 @@ describe('Trip page tabs', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Stay' }));
 
     expect(screen.getByRole('article', { name: 'The Drake' })).toBeVisible();
-    // One overview and one (billed) search, however often the tab is reopened.
-    expect(api.get.mock.calls.filter(([path]) => path === '/trips/7/lodging')).toHaveLength(1);
+    // One (billed) search, however often the tab is reopened.
     expect(api.get.mock.calls.filter(([path]) => path === '/trips/7/lodging/stays/1')).toHaveLength(1);
+  });
+
+  it('says where you sleep each night, and leads to the Stay tab to choose', async () => {
+    const plan = savedPlan('Art Institute of Chicago');
+    plan.days.push({ ...plan.days[0], id: 2, day_number: 2, date: '2026-11-06' }); // Nov 5 – 6: one night
+    mockLoad(plan);
+    renderTrip();
+
+    const label = await screen.findByText('Tonight in Chicago, IL:');
+    expect(label.closest('p')).toHaveTextContent('Tonight in Chicago, IL: no hotel chosen yet');
+    expect(api.get).toHaveBeenCalledWith('/trips/7/lodging'); // the free overview, no search
+    expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging/stays/1');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Choose where to stay' }));
+
+    const stay = screen.getByRole('tab', { name: 'Stay' });
+    expect(stay).toHaveAttribute('aria-selected', 'true');
+    expect(stay).toHaveFocus();
   });
 
   it("the Budget tab's Stay line leads to the Stay tab", async () => {
@@ -351,7 +369,7 @@ describe('Trip page tabs', () => {
     expect(await screen.findByRole('button', { name: 'Marker Your hotel' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Marker 1. Art Institute of Chicago' })).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/trips/7/lodging/pin');
-    expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging'); // the map never searches for hotels
+    expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging/stays/1'); // the map never searches for hotels
   });
 
   it('keeps the other tabs working when the map fails to load', async () => {

@@ -68,6 +68,31 @@ export function stayIds(number) {
   };
 }
 
+/**
+ * A plan day's lodging, from GET /lodging's stays: the stay it sleeps in (`tonight`, none on the last
+ * day: the trip ends) and, on a day the city changes, `move` = { from, to }. Dates are YYYY-MM-DD.
+ */
+export function dayLodging(stays, date, lastDate) {
+  if (!stays?.length) return { tonight: null, move: null };
+  const tonight = date === lastDate ? null : stays.find((s) => s.check_in <= date && date < s.check_out) ?? null;
+  const index = stays.findIndex((s) => s.check_in === date);
+  const move = index > 0 ? { from: stays[index - 1].city, to: stays[index].city } : null;
+  return { tonight, move };
+}
+
+/**
+ * Where the traveler sleeps, for the Itinerary: "your hotel in Chitwan" (Google's names cost a lookup
+ * on every visit, so they aren't shown), their own hotel's name, or what they told us.
+ * null when there's nothing settled to show: no choice yet, or one made for a different city.
+ */
+export function tonightText(stay) {
+  const { choice, city } = stay;
+  if (!choice || stay.plan_changed) return null;
+  if (choice.choice === 'hotel') return `your hotel in ${city}`;
+  if (choice.choice === 'own') return choice.custom_name;
+  return choice.skip_reason === 'have_place' ? `your own place in ${city}` : 'no hotel needed';
+}
+
 /** The status pill on a stay's header: what's been decided for it. */
 export function stayStatus(stay) {
   const { choice } = stay;
