@@ -1,4 +1,4 @@
-"""F3/A1: generate a trip's AI itinerary, save it with the trip, and load it back."""
+"""F3/A1: generate a trip's AI itinerary, save it with the trip (with map locations, A12), and load it back."""
 
 from fastapi import APIRouter, HTTPException, status
 
@@ -8,7 +8,7 @@ from app.plans import has_plan, load_plan, save_plan
 from app.routers.trips import get_own_trip
 from app.schemas import SavedPlanOut, TripPlanRequest
 from app.security import CurrentUser
-from app.services import llm
+from app.services import geocoding, llm
 
 router = APIRouter(prefix="/api/trips", tags=["ai plan"])
 
@@ -63,8 +63,11 @@ def generate_plan(trip_id: int, user: CurrentUser, db: DbSession) -> SavedPlanOu
             },
         ) from exc
 
+    # Map locations (A12), looked up before anything is replaced. A failed lookup only leaves a stop off the map.
+    coordinates = geocoding.locate_activities(itinerary, trip.destination)
+
     # Only replace the saved plan once a new one was generated.
-    save_plan(trip, itinerary, db)
+    save_plan(trip, itinerary, db, coordinates)
     db.commit()
 
     return load_plan(trip, db)

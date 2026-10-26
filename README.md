@@ -66,7 +66,7 @@ Wanderwise/
 │   │   ├── budget.py       budget categories and a trip's cost totals
 │   │   ├── security.py     passwords, JWT cookie, CurrentUser
 │   │   ├── rate_limit.py   limits repeated failed logins
-│   │   ├── services/       outside integrations (llm.py = Gemini)
+│   │   ├── services/       outside integrations (llm.py = Gemini, geocoding.py = Google Geocoding)
 │   │   └── routers/        endpoints, one file per feature (auth, preferences, trips, plan, budget)
 │   ├── migrations/         Alembic: one file per database change
 │   ├── .env.example        copy to .env
@@ -138,6 +138,31 @@ cd backend && python -m pytest    # with the venv activated
 cd frontend && npm test
 ```
 
+### 4. Maps setup (optional)
+
+The Map tab (A12) needs two Google keys. Without them everything else works: plans are saved without map locations, and the Map tab says the map can't load.
+
+In [Google Cloud Console](https://console.cloud.google.com/), use the **same project as Routes (A8)**, with billing turned on.
+
+1. **Turn on the APIs:** APIs & Services → Library → enable **Maps JavaScript API** and **Geocoding API**.
+2. **Browser key** (shows the map): APIs & Services → Credentials → Create credentials → API key, then edit it:
+   - Application restrictions: **Websites** → add `http://localhost:5173/*` (and the live URL once we have one).
+   - API restrictions: **Restrict key** → **Maps JavaScript API** only.
+   - Put it in `frontend/.env` as `VITE_GOOGLE_MAPS_KEY=...`
+3. **Server key** (turns each activity's location into coordinates when a plan is saved): create a second API key.
+   - API restrictions: **Restrict key** → **Geocoding API** only. (Once the backend is deployed, also restrict it to the server's IP address.)
+   - Put it in `backend/.env` as `MAPS_API_KEY=...`
+4. **Map ID** (optional): Google Maps Platform → Map management → Create Map ID (JavaScript, Vector). Put it in `frontend/.env` as `VITE_GOOGLE_MAPS_MAP_ID=...`. If it's empty, Google's `DEMO_MAP_ID` is used, which is fine for local development.
+5. **Limit the cost:** Billing → Budgets & alerts → create a small monthly budget with email alerts. Then, for each API: APIs & Services → the API → Quotas → set a requests-per-day limit, so a bug can't run up a bill.
+6. **Restart** both servers. Vite reads `.env` when it starts, and `VITE_` values are built into the JavaScript, so a deployed frontend needs the key set *when it's built*.
+
+Good to know:
+
+- **Never commit a key.** `.env` files are git-ignored; only `.env.example` (with empty values) is committed.
+- The browser key is visible to anyone who opens the site. That's normal for Google Maps, and it's why it must be restricted to our websites and the Maps JavaScript API.
+- Plans saved before the server key was set have no map locations. Regenerate the plan to add them.
+- Tests never call Google: `backend/tests/conftest.py` clears `MAPS_API_KEY`, and the frontend tests mock the map.
+
 ### Troubleshooting
 
 | Symptom | Fix |
@@ -147,6 +172,8 @@ cd frontend && npm test
 | `uvicorn: command not found` | Same as above — activate the venv first. |
 | Frontend shows network errors | The backend isn't running on port 8000. |
 | Errors mentioning `darwin` / `.so` / `rolldown` binding | You have someone else's `.venv` or `node_modules`. Delete it and reinstall. |
+| Map tab says "The map can't load right now" | In development the message also gives the reason. Usually `VITE_GOOGLE_MAPS_KEY` is missing, or the key's website restrictions don't include `http://localhost:5173/*`. Restart `npm run dev` after editing `.env`. |
+| Map tab says "No map locations for this plan yet" | Set `MAPS_API_KEY` in `backend/.env`, restart the backend, and regenerate the plan. The backend log says why a lookup failed. |
 
 ---
 

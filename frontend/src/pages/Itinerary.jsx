@@ -2,15 +2,16 @@
  * S4 Trip page: trip details plus its saved day-by-day plan (F3/F5, A1).
  * POST /trips/{id}/plan generates and saves the plan; GET loads it with the trip.
  * Arriving from New Trip (location state `generate`) starts generating right away.
- * Itinerary and Budget (A3) are tabs; ?tab=budget keeps the Budget tab open on refresh.
+ * Itinerary, Budget (A3) and Map (A12) are tabs; ?tab=budget or ?tab=map keeps a tab open on refresh.
  */
-import { useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import BudgetTab from '../components/BudgetTab';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
+import ErrorBoundary from '../components/ErrorBoundary';
 import ItineraryView from '../components/ItineraryView';
 import Spinner from '../components/Spinner';
 import Tabs, { TabPanel, tabId } from '../components/Tabs';
@@ -18,9 +19,13 @@ import { formatBudget, formatDateRange, tripLength } from '../lib/format';
 import './MyTrips.css'; // interest tags
 import './Itinerary.css';
 
+// The map code is only downloaded when someone opens the Map tab.
+const TripMap = lazy(() => import('../components/TripMap'));
+
 const TRIP_TABS = [
   { id: 'itinerary', label: 'Itinerary' },
   { id: 'budget', label: 'Budget' },
+  { id: 'map', label: 'Map' },
 ];
 
 export default function Itinerary() {
@@ -28,7 +33,8 @@ export default function Itinerary() {
   const location = useLocation();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
-  const tab = searchParams.get('tab') === 'budget' ? 'budget' : 'itinerary';
+  const requestedTab = searchParams.get('tab');
+  const tab = TRIP_TABS.some(({ id }) => id === requestedTab) ? requestedTab : 'itinerary';
   const [trip, setTrip] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | notfound | error
   const [loadError, setLoadError] = useState('');
@@ -94,8 +100,8 @@ export default function Itinerary() {
 
   function selectTab(id) {
     const params = new URLSearchParams(searchParams);
-    if (id === 'budget') params.set('tab', 'budget');
-    else params.delete('tab'); // Itinerary is the default
+    if (id === 'itinerary') params.delete('tab'); // the default
+    else params.set('tab', id);
     // Replace, so switching tabs doesn't fill the Back button's history.
     setSearchParams(params, { replace: true });
   }
@@ -256,6 +262,24 @@ export default function Itinerary() {
         <TabPanel idPrefix="trip" id="budget" selected={tab}>
           {/* Mounted only while open, so opening the tab always loads fresh totals. */}
           {tab === 'budget' && <BudgetTab trip={trip} onShowItinerary={showItinerary} />}
+        </TabPanel>
+
+        <TabPanel idPrefix="trip" id="map" selected={tab}>
+          {/* Mounted only while open: Google bills per map load, so the map loads only when asked for. */}
+          {tab === 'map' && (
+            // If the map code fails to download or crashes, only this tab says so; reopening it retries.
+            <ErrorBoundary
+              fallback={
+                <Card padding="lg">
+                  <p role="status">The map can&apos;t load right now. The rest of your trip still works.</p>
+                </Card>
+              }
+            >
+              <Suspense fallback={<Spinner size="lg" label="Loading the map" />}>
+                <TripMap plan={plan} onShowItinerary={showItinerary} />
+              </Suspense>
+            </ErrorBoundary>
+          )}
         </TabPanel>
       </div>
     </div>

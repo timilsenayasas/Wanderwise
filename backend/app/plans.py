@@ -66,7 +66,11 @@ def clear_trip(trip: Trip, db: Session) -> None:
     db.execute(delete(CostItem).where(CostItem.trip_id == trip.id))
 
 
-def _activity_row(trip_day: TripDay, activity: ItineraryActivity) -> Activity:
+def _activity_row(
+    trip_day: TripDay, activity: ItineraryActivity, coordinates: dict[str, tuple[float, float]]
+) -> Activity:
+    # Filled from `location` by services/geocoding.py; None when it wasn't found or wasn't looked up.
+    latitude, longitude = coordinates.get(activity.location.strip(), (None, None))
     # Slices match the column lengths (Postgres rejects longer strings).
     return Activity(
         trip_day_id=trip_day.id,
@@ -78,9 +82,8 @@ def _activity_row(trip_day: TripDay, activity: ItineraryActivity) -> Activity:
         category=activity.category[:80],
         estimated_cost=activity.estimated_cost,
         travel_minutes_to_next=activity.travel_time_to_next_minutes,
-        # The AI gives no coordinates; the map card (A12) fills these from `location`.
-        latitude=None,
-        longitude=None,
+        latitude=latitude,
+        longitude=longitude,
     )
 
 
@@ -108,15 +111,24 @@ def build_cost_items(trip: Trip, itinerary: ItineraryResponse) -> list[CostItem]
     ]
 
 
-def save_plan(trip: Trip, itinerary: ItineraryResponse, db: Session) -> None:
-    """Replace the trip's saved plan with this itinerary. The caller commits."""
+def save_plan(
+    trip: Trip,
+    itinerary: ItineraryResponse,
+    db: Session,
+    coordinates: dict[str, tuple[float, float]] | None = None,
+) -> None:
+    """Replace the trip's saved plan with this itinerary. The caller commits.
+
+    `coordinates` maps location text to (latitude, longitude), from geocoding.locate_activities().
+    """
     clear_plan(trip, db)
+    coordinates = coordinates or {}
 
     for number, day in enumerate(itinerary.days, start=1):
         trip_day = TripDay(trip_id=trip.id, day_number=number, trip_date=day.date)
         db.add(trip_day)
         db.flush()  # assigns trip_day.id for its activities
-        db.add_all(_activity_row(trip_day, activity) for activity in day.activities)
+        db.add_all(_activity_row(trip_day, activity, coordinates) for activity in day.activities)
 
     db.add_all(build_cost_items(trip, itinerary))
 
