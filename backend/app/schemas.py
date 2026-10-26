@@ -128,9 +128,19 @@ class ItineraryActivity(BaseModel):
     check_start_time = field_validator("start_time")(_clock_time)
 
 
+def _base_city(v: str | None) -> str | None:
+    """Trimmed and capped at the column's length; blank means "the trip's destination"."""
+    v = " ".join((v or "").split())[:120]
+    return v or None
+
+
 class ItineraryDay(BaseModel):
     date: date
+    # Where the traveler sleeps that night. Optional, so an answer without it still saves.
+    base_city: str | None = None
     activities: list[ItineraryActivity]
+
+    check_base_city = field_validator("base_city")(_base_city)
 
 
 class ItineraryResponse(BaseModel):
@@ -154,6 +164,7 @@ class SavedDay(BaseModel):
     id: int
     day_number: int
     date: date
+    base_city: str | None  # None for plans saved before multi-city trips: the trip's destination
     activities: list[SavedActivity]
 
 

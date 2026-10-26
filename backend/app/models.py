@@ -129,6 +129,11 @@ class TripDay(Base):
     notes: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
+    # Where the traveler sleeps that night (from the AI plan), e.g. "Chitwan, Nepal".
+    # Empty for plans saved before multi-city trips: those use the trip's destination.
+    base_city: Mapped[str | None] = mapped_column(
+        String(120), nullable=True
+    )
 
 
 class Activity(Base):
@@ -228,22 +233,34 @@ LODGING_SKIP = "skip"
 
 
 class TripLodging(Base):
-    """Where to stay: the traveler's lodging choice, one row per trip.
+    """Where to stay: the traveler's lodging choice, one row per stay of a trip.
+
+    A stay is a run of nights in one base city, worked out from the plan (lodging.py). Choices
+    are matched to stays by number; `city` records the stay's city when the choice was made,
+    so a regenerated plan that moved things around can be pointed out instead of guessed.
 
     Google's Places terms: only the place ID may be kept. Names, ratings and photos are
     fetched fresh when shown, and coordinates are refreshed or cleared after 30 days.
     """
 
     __tablename__ = "trip_lodging"
+    __table_args__ = (UniqueConstraint("trip_id", "stay_number", name="uq_trip_lodging_trip_stay"),)
 
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True
     )
     trip_id: Mapped[int] = mapped_column(
         ForeignKey("trips.id", ondelete="CASCADE"),
-        unique=True,
         nullable=False,
         index=True,
+    )
+    # 1 for the first stay. One-city trips (and every choice made before multi-city) are stay 1.
+    stay_number: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False
+    )
+    # The stay's base city when the choice was made (our own data, from the AI plan).
+    city: Mapped[str | None] = mapped_column(
+        String(120), nullable=True
     )
     choice: Mapped[str] = mapped_column(
         String(10), nullable=False
