@@ -9,6 +9,7 @@ Where things live:
   plans.py         save/load a trip's generated plan (trip_days, activities, cost_items)
   budget.py        budget categories and a trip's cost totals
   security.py      passwords, JWT cookie, CurrentUser
+  rate_limit.py    limits repeated failed logins
   services/        outside integrations (Gemini, Google Geocoding; later weather)
   routers/         one file per feature: endpoints only
 
