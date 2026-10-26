@@ -8,24 +8,50 @@ lodging (the trip budget minus every cost line except lodging, so the current ch
 count against itself).
 """
 
+from datetime import datetime, timedelta, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.budget import PLAN_CURRENCY, budget_summary, to_cents, to_dollars
-from app.models import LODGING_HOTEL, Trip, TripHotelEstimate, TripLodging
+from app.models import (
+    LODGING_HOTEL,
+    LODGING_OWN,
+    LODGING_SKIP,
+    USER_SOURCE,
+    CostItem,
+    Trip,
+    TripHotelEstimate,
+    TripLodging,
+    utcnow,
+)
 from app.schemas import (
+    HotelChoiceIn,
     HotelOut,
     HotelPhotoOut,
     HotelSuggestionOut,
+    LodgingChoiceIn,
     LodgingChoiceOut,
     LodgingFit,
     LodgingOut,
+    OwnHotelIn,
     PhotoAuthorOut,
 )
 from app.services import hotel_prices, places
+from app.services.geocoding import Coordinates
 
 # "Slightly over" is up to this much above the budget left for lodging.
 SLIGHTLY_OVER_SHARE = 0.10
+
+# Google's Places terms: stored coordinates are refreshed or cleared after 30 days.
+COORDS_MAX_AGE = timedelta(days=30)
+
+# The description on the choice's cost line (Budget tab).
+LODGING_LINE_DESCRIPTION = "Lodging"
+
+
+class ChoiceError(Exception):
+    """A lodging choice that can't be saved. The message is shown to the traveler."""
 
 FIT_ORDER: dict[LodgingFit | None, int] = {"fits": 0, "slightly_over": 1, "over": 2, None: 3}
 
@@ -100,6 +126,133 @@ def nightly_estimates(trip: Trip, hotels: list[places.Hotel], db: Session, fresh
     return {hotel.place_id: rows[hotel.place_id].nightly_price for hotel in hotels}
 
 
+# --- The traveler's choice ------------------------------------------------
+def choice_row(trip: Trip, db: Session) -> TripLodging | None:
+    return db.scalar(select(TripLodging).where(TripLodging.trip_id == trip.id))
+
+
+def stay_line_id(trip: Trip, db: Session) -> int | None:
+    """The cost line the choice keeps in step, which the Budget tab can't edit."""
+    return db.scalar(select(TripLodging.cost_item_id).where(TripLodging.trip_id == trip.id))
+
+
+def _as_utc(moment: datetime) -> datetime:
+    # SQLite gives back naive datetimes; they were stored in UTC.
+    return moment if moment.tzinfo else moment.replace(tzinfo=timezone.utc)
+
+
+def coords_are_fresh(row: TripLodging) -> bool:
+    return (
+        row.latitude is not None
+        and row.longitude is not None
+        and row.coords_fetched_at is not None
+        and utcnow() - _as_utc(row.coords_fetched_at) < COORDS_MAX_AGE
+    )
+
+
+def set_coords(row: TripLodging, coords: Coordinates | None) -> None:
+    row.latitude, row.longitude = coords if coords else (None, None)
+    row.coords_fetched_at = utcnow() if coords else None
+
+
+def _check_nights(trip: Trip, nights: int) -> None:
+    most = trip_nights(trip)
+    if not 1 <= nights <= most:
+        raise ChoiceError(f"Nights must be between 1 and {most}, the length of your trip.")
+
+
+def _own_line(trip: Trip, row: TripLodging, db: Session) -> CostItem | None:
+    line = db.get(CostItem, row.cost_item_id) if row.cost_item_id else None
+    return line if line is not None and line.trip_id == trip.id else None
+
+
+def _remove_cost_line(trip: Trip, row: TripLodging, db: Session) -> None:
+    line = _own_line(trip, row, db)
+    row.cost_item_id = None
+    if line is not None:
+        db.flush()  # stop pointing at the line before it goes (where foreign keys are enforced)
+        db.delete(line)
+
+
+def _sync_cost_line(trip: Trip, row: TripLodging, db: Session) -> None:
+    """Keep the choice's one Lodging line in step: nightly price x nights, or no line when skipping.
+
+    A user line, so regenerating the plan keeps it. Changing the choice updates the same line.
+    """
+    if row.choice == LODGING_SKIP:
+        _remove_cost_line(trip, row, db)
+        return
+
+    amount = to_dollars(to_cents(row.nightly_price) * row.nights)
+    line = _own_line(trip, row, db)
+    if line is None:
+        line = CostItem(trip_id=trip.id, source=USER_SOURCE, category="lodging", amount=amount)
+        db.add(line)
+        db.flush()  # for its id
+        row.cost_item_id = line.id
+    line.description = LODGING_LINE_DESCRIPTION
+    line.amount = amount
+    line.trip_date = None
+
+
+def save_choice(trip: Trip, body: LodgingChoiceIn, db: Session) -> TripLodging:
+    """Save a pick, the traveler's own hotel, or a skip, and its cost line. The caller commits.
+
+    Raises ChoiceError (nothing is changed) if the choice doesn't fit the trip.
+    """
+    row = choice_row(trip, db)
+
+    if isinstance(body, HotelChoiceIn):
+        estimate = db.scalar(
+            select(TripHotelEstimate).where(
+                TripHotelEstimate.trip_id == trip.id, TripHotelEstimate.place_id == body.place_id
+            )
+        )
+        if estimate is None:
+            raise ChoiceError("Choose one of the suggested hotels.")
+        price = body.nightly_price if body.nightly_price is not None else estimate.nightly_price
+        if price is None:
+            raise ChoiceError("This hotel has no price estimate. Enter a nightly price.")
+        nights = body.nights if body.nights is not None else trip_nights(trip)
+        _check_nights(trip, nights)
+
+        row = row or TripLodging(trip_id=trip.id)
+        # The same hotel again keeps its coordinates while they're fresh: no extra request.
+        if row.place_id != body.place_id or not coords_are_fresh(row):
+            set_coords(row, places.get_location(body.place_id))
+        row.choice, row.place_id, row.custom_name, row.skip_reason = LODGING_HOTEL, body.place_id, None, None
+        row.nightly_price, row.nights = price, nights
+
+    elif isinstance(body, OwnHotelIn):
+        _check_nights(trip, body.nights)
+        row = row or TripLodging(trip_id=trip.id)
+        set_coords(row, None)  # no place ID to look it up by, so no map pin
+        row.choice, row.place_id, row.custom_name, row.skip_reason = LODGING_OWN, None, body.name, None
+        row.nightly_price, row.nights = body.nightly_price, body.nights
+
+    else:
+        row = row or TripLodging(trip_id=trip.id)
+        set_coords(row, None)
+        row.choice, row.place_id, row.custom_name, row.skip_reason = LODGING_SKIP, None, None, body.reason
+        row.nightly_price, row.nights = None, None
+
+    db.add(row)
+    _sync_cost_line(trip, row, db)
+    return row
+
+
+def remove_choice(trip: Trip, db: Session) -> None:
+    """Forget the choice and remove its cost line. The caller commits."""
+    row = choice_row(trip, db)
+    if row is None:
+        return
+    line = _own_line(trip, row, db)
+    db.delete(row)
+    if line is not None:
+        db.flush()  # the row points at the line, so it goes first
+        db.delete(line)
+
+
 # --- Responses ------------------------------------------------------------
 def hotel_out(hotel: places.Hotel) -> dict:
     """A Places hotel as HotelOut fields."""
@@ -121,16 +274,20 @@ def hotel_out(hotel: places.Hotel) -> dict:
     }
 
 
-def choice_out(trip: Trip, db: Session, found: list[places.Hotel]) -> LodgingChoiceOut | None:
+def choice_out(
+    trip: Trip, db: Session, found: list[places.Hotel], look_up: bool = True
+) -> LodgingChoiceOut | None:
     """The traveler's current choice. A picked hotel's details come from this search, or are looked up."""
-    row = db.scalar(select(TripLodging).where(TripLodging.trip_id == trip.id))
+    row = choice_row(trip, db)
     if row is None:
         return None
 
     hotel = None
     if row.choice == LODGING_HOTEL and row.place_id:
         # Already in the suggestions: no extra request.
-        hotel = next((h for h in found if h.place_id == row.place_id), None) or places.get_hotel(row.place_id)
+        hotel = next((h for h in found if h.place_id == row.place_id), None)
+        if hotel is None and look_up:
+            hotel = places.get_hotel(row.place_id)
 
     total = None
     if row.nightly_price is not None and row.nights is not None:

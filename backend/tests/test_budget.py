@@ -234,6 +234,7 @@ def test_add_a_cost_line(client):
         "amount": 450.0,
         "source": "user",
         "trip_date": "2026-10-10",
+        "from_stay": False,
     }
     assert get_budget(client, trip_id)["items"] == [line]
 
@@ -268,6 +269,7 @@ def test_edit_a_cost_line(client):
         "amount": 60.0,
         "source": "user",
         "trip_date": None,
+        "from_stay": False,
     }
     assert by_category(get_budget(client, trip_id))["transport"] == 60.0
 

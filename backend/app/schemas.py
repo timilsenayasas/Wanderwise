@@ -2,7 +2,7 @@
 
 import re
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -190,6 +190,8 @@ class CostItemOut(BaseModel):
     amount: float
     source: str
     trip_date: date | None
+    # The Where to stay choice's Lodging line: read-only here, changed on the Stay tab.
+    from_stay: bool = False
 
 
 class SavedPlanOut(BaseModel):
@@ -269,11 +271,69 @@ class HotelSuggestionOut(HotelOut):
     best_fit: bool  # true on at most one suggestion
 
 
+def _nightly_price(v: float | None) -> float | None:
+    if v is None:
+        return v
+    if v < 0:
+        raise ValueError("Nightly price can't be negative")
+    return round(v, 2)  # whole cents, like every cost line
+
+
+def _at_least_one_night(v: int | None) -> int | None:
+    if v is not None and v < 1:
+        raise ValueError("Nights must be at least 1")
+    return v  # the most is the trip's length (checked in lodging.py)
+
+
+class HotelChoiceIn(BaseModel):
+    """Pick a suggested hotel. Without a price, its estimate is used; without nights, the whole trip."""
+
+    choice: Literal["hotel"]
+    place_id: str = Field(min_length=1, max_length=255)
+    nightly_price: float | None = Field(default=None, allow_inf_nan=False)
+    nights: int | None = None
+
+    check_price = field_validator("nightly_price")(_nightly_price)
+    check_nights = field_validator("nights")(_at_least_one_night)
+
+
+class OwnHotelIn(BaseModel):
+    """A hotel the traveler found themselves."""
+
+    choice: Literal["own"]
+    name: str = Field(max_length=200)
+    nightly_price: float = Field(allow_inf_nan=False)
+    nights: int
+
+    check_price = field_validator("nightly_price")(_nightly_price)
+    check_nights = field_validator("nights")(_at_least_one_night)
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Enter your hotel's name")
+        return v
+
+
+class SkipLodgingIn(BaseModel):
+    """No hotel to book: "I already have a place" or "No hotel needed"."""
+
+    choice: Literal["skip"]
+    reason: SkipReason
+
+
+LodgingChoiceIn = Annotated[HotelChoiceIn | OwnHotelIn | SkipLodgingIn, Field(discriminator="choice")]
+
+
 class LodgingChoiceOut(BaseModel):
     choice: LodgingChoice
     skip_reason: SkipReason | None
     place_id: str | None
-    hotel: HotelOut | None  # a picked hotel's details; None if Google couldn't be reached
+    # A picked hotel's details: None if Google couldn't be reached, and in PUT responses
+    # (the page already shows the suggestion, so it isn't fetched again).
+    hotel: HotelOut | None
     custom_name: str | None  # the traveler's own hotel
     nightly_price: float | None
     nights: int | None

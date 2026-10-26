@@ -4,7 +4,7 @@ import httpx
 from conftest import register
 from sqlalchemy import select
 from test_places import fake_places, photo_uri, place
-from test_plan import use_fake_gemini
+from test_plan import FIRST_PLAN, SECOND_PLAN, use_fake_gemini
 
 from app.config import settings
 from app.database import Base, get_db
@@ -478,3 +478,299 @@ def test_nothing_from_google_is_stored(client, monkeypatch):
         db.close()
     for google_content in ("The Drake", "Hotel Lux", "Near North Side", "Sam Lee", "googleusercontent", "cid="):
         assert google_content not in everything
+
+
+# --- Choosing -------------------------------------------------------------
+DRAKE_AT = (41.9, -87.62)
+
+
+def suggest(client, monkeypatch, trip_id: int, estimates=None, locations=None) -> list[dict]:
+    """Open Where to stay with The Drake (140/night) and Hotel Lux (300/night). Returns the Places requests."""
+    if locations is None:
+        locations = {"p1": {"location": {"latitude": DRAKE_AT[0], "longitude": DRAKE_AT[1]}}, "p2": {}}
+    sent = fake_places(monkeypatch, search={"places": [DRAKE, LUX]}, details=locations)
+    use_fake_gemini(monkeypatch, estimates or prices(p1=140, p2=300))
+    get_lodging(client, trip_id)
+    return sent
+
+
+def put_choice(client, trip_id: int, **body):
+    return client.put(f"/api/trips/{trip_id}/lodging", json=body)
+
+
+def lodging_lines(trip_id: int) -> list[tuple]:
+    """(id, amount, source, description) of the trip's lodging cost lines."""
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        rows = db.scalars(select(CostItem).where(CostItem.trip_id == trip_id, CostItem.category == "lodging"))
+        return [(line.id, line.amount, line.source, line.description) for line in rows]
+    finally:
+        db.close()
+
+
+def stored_choice(trip_id: int) -> TripLodging | None:
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        return db.scalar(select(TripLodging).where(TripLodging.trip_id == trip_id))
+    finally:
+        db.close()
+
+
+def location_requests(sent: list[dict]) -> list[dict]:
+    return [r for r in sent if r["field_mask"] == "location"]
+
+
+def test_choose_requires_login_and_ownership(client):
+    assert client.put("/api/trips/1/lodging", json={"choice": "skip", "reason": "not_needed"}).status_code == 401
+    assert client.delete("/api/trips/1/lodging").status_code == 401
+
+    register(client)
+    trip_id = create_trip(client)
+    client.post("/api/auth/logout")
+    register(client, email="second@example.com")
+
+    assert put_choice(client, trip_id, choice="skip", reason="not_needed").status_code == 404
+    assert client.delete(f"/api/trips/{trip_id}/lodging").status_code == 404
+
+
+def test_picking_a_hotel_uses_its_estimate_for_the_whole_trip(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    sent = suggest(client, monkeypatch, trip_id)
+
+    r = put_choice(client, trip_id, choice="hotel", place_id="p1")
+
+    assert r.status_code == 200
+    assert r.json() == {
+        "choice": "hotel",
+        "skip_reason": None,
+        "place_id": "p1",
+        "hotel": None,  # the page already shows it; not fetched again
+        "custom_name": None,
+        "nightly_price": 140,
+        "nights": 4,
+        "total": 560,
+        "nights_exceed_trip": False,
+    }
+    [(_, amount, source, description)] = lodging_lines(trip_id)
+    assert (amount, source, description) == (560, "user", "Lodging")
+
+    row = stored_choice(trip_id)
+    assert (row.latitude, row.longitude) == DRAKE_AT
+    assert row.coords_fetched_at is not None
+    assert len(location_requests(sent)) == 1
+
+
+def test_picking_with_my_own_price_and_nights(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+
+    r = put_choice(client, trip_id, choice="hotel", place_id="p2", nightly_price=275.555, nights=2)
+
+    assert (r.json()["nightly_price"], r.json()["nights"], r.json()["total"]) == (275.56, 2, 551.12)
+    assert [line[1] for line in lodging_lines(trip_id)] == [551.12]
+
+
+def test_a_hotel_whose_location_cant_be_found_is_still_saved(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+
+    assert put_choice(client, trip_id, choice="hotel", place_id="p2").status_code == 200  # p2 has no location
+
+    row = stored_choice(trip_id)
+    assert (row.latitude, row.longitude, row.coords_fetched_at) == (None, None, None)
+
+
+def test_picking_the_same_hotel_again_keeps_fresh_coordinates(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    sent = suggest(client, monkeypatch, trip_id)
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+
+    put_choice(client, trip_id, choice="hotel", place_id="p1", nights=3)
+
+    assert len(location_requests(sent)) == 1
+    assert [line[1] for line in lodging_lines(trip_id)] == [420]
+
+
+def test_only_suggested_hotels_can_be_picked(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+
+    r = put_choice(client, trip_id, choice="hotel", place_id="not-suggested")
+
+    assert r.status_code == 422
+    assert r.json()["detail"] == "Choose one of the suggested hotels."
+    assert stored_choice(trip_id) is None
+    assert lodging_lines(trip_id) == []
+
+
+def test_a_hotel_without_an_estimate_needs_a_price(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id, estimates="not json")
+
+    r = put_choice(client, trip_id, choice="hotel", place_id="p1")
+    assert r.status_code == 422
+    assert r.json()["detail"] == "This hotel has no price estimate. Enter a nightly price."
+
+    assert put_choice(client, trip_id, choice="hotel", place_id="p1", nightly_price=99).json()["total"] == 396
+
+
+def test_adding_my_own_hotel(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+
+    r = put_choice(client, trip_id, choice="own", name="  Lake House  ", nightly_price=80, nights=3)
+
+    assert r.status_code == 200
+    assert (r.json()["choice"], r.json()["custom_name"], r.json()["place_id"], r.json()["total"]) == (
+        "own",
+        "Lake House",
+        None,
+        240,
+    )
+    assert [line[1:] for line in lodging_lines(trip_id)] == [(240, "user", "Lodging")]
+    assert stored_choice(trip_id).latitude is None  # no place ID, so no map pin
+
+
+def test_skipping_stores_the_reason_and_no_cost_line(client):
+    register(client)
+    trip_id = create_trip(client)
+
+    r = put_choice(client, trip_id, choice="skip", reason="have_place")
+
+    assert r.status_code == 200
+    assert (r.json()["choice"], r.json()["skip_reason"], r.json()["total"]) == ("skip", "have_place", None)
+    assert lodging_lines(trip_id) == []
+
+
+def test_changing_the_choice_keeps_exactly_one_line_the_same_line(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+    [(line_id, amount, *_)] = lodging_lines(trip_id)
+    assert amount == 560
+
+    put_choice(client, trip_id, choice="own", name="Lake House", nightly_price=80, nights=4)
+    assert lodging_lines(trip_id) == [(line_id, 320, "user", "Lodging")]
+    row = stored_choice(trip_id)
+    assert (row.place_id, row.latitude) == (None, None)
+
+    put_choice(client, trip_id, choice="hotel", place_id="p2")
+    assert lodging_lines(trip_id) == [(line_id, 1200, "user", "Lodging")]
+
+    put_choice(client, trip_id, choice="skip", reason="not_needed")
+    assert lodging_lines(trip_id) == []
+
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+    assert [line[1] for line in lodging_lines(trip_id)] == [560]
+
+
+def test_removing_the_choice_removes_its_line_only(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+    client.post(f"/api/trips/{trip_id}/cost-items", json={"category": "lodging", "amount": 50, "description": "Hostel"})
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+
+    r = client.delete(f"/api/trips/{trip_id}/lodging")
+
+    assert r.status_code == 204
+    assert stored_choice(trip_id) is None
+    assert [line[1:] for line in lodging_lines(trip_id)] == [(50, "user", "Hostel")]
+    assert client.delete(f"/api/trips/{trip_id}/lodging").status_code == 204  # nothing left: still fine
+
+
+def test_regenerating_the_plan_keeps_the_lodging_line(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+    [line] = lodging_lines(trip_id)
+
+    monkeypatch.setattr(settings, "maps_api_key", "")  # plans saved without map lookups
+    use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
+    assert client.post(f"/api/trips/{trip_id}/plan").status_code == 200
+    assert client.post(f"/api/trips/{trip_id}/plan").status_code == 200
+
+    assert lodging_lines(trip_id) == [line]
+    assert stored_choice(trip_id).cost_item_id == line[0]
+
+
+def test_the_choice_shows_in_the_budget(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+    client.post(f"/api/trips/{trip_id}/cost-items", json={"category": "lodging", "amount": 50})
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+
+    budget = client.get(f"/api/trips/{trip_id}/budget").json()
+
+    lodging = next(c["amount"] for c in budget["categories"] if c["category"] == "lodging")
+    assert lodging == 610
+    assert sorted((item["amount"], item["from_stay"]) for item in budget["items"]) == [(50, False), (560, True)]
+
+
+def test_the_stay_line_cant_be_edited_or_deleted_in_the_budget(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+    [(line_id, *_)] = lodging_lines(trip_id)
+
+    edit = client.put(f"/api/trips/{trip_id}/cost-items/{line_id}", json={"category": "lodging", "amount": 1})
+    delete = client.delete(f"/api/trips/{trip_id}/cost-items/{line_id}")
+
+    for r in (edit, delete):
+        assert r.status_code == 409
+        assert r.json()["detail"] == "This line comes from your Where to stay choice. Change it on the Stay tab."
+    assert [line[1] for line in lodging_lines(trip_id)] == [560]
+
+
+# --- Validation -----------------------------------------------------------
+def test_nights_must_fit_the_trip(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+
+    too_many = put_choice(client, trip_id, choice="hotel", place_id="p1", nights=5)
+    own_too_many = put_choice(client, trip_id, choice="own", name="Inn", nightly_price=80, nights=5)
+    zero = put_choice(client, trip_id, choice="own", name="Inn", nightly_price=80, nights=0)
+
+    for r in (too_many, own_too_many):
+        assert r.status_code == 422
+        assert r.json()["detail"] == "Nights must be between 1 and 4, the length of your trip."
+    assert zero.status_code == 422
+    assert zero.json()["detail"][0]["msg"] == "Value error, Nights must be at least 1"
+    assert stored_choice(trip_id) is None
+
+
+def test_invalid_choices_are_422_with_clear_messages(client):
+    register(client)
+    trip_id = create_trip(client)
+
+    cases = [
+        ({"choice": "own", "name": "Inn", "nightly_price": -1, "nights": 2}, "Nightly price can't be negative"),
+        ({"choice": "own", "name": "   ", "nightly_price": 80, "nights": 2}, "Enter your hotel's name"),
+        ({"choice": "hotel", "place_id": "p1", "nightly_price": -5}, "Nightly price can't be negative"),
+    ]
+    for body, message in cases:
+        r = put_choice(client, trip_id, **body)
+        assert r.status_code == 422, body
+        assert r.json()["detail"][0]["msg"] == f"Value error, {message}"
+
+    for body in (
+        {"choice": "own", "nightly_price": 80, "nights": 2},  # no name
+        {"choice": "own", "name": "Inn", "nights": 2},  # no price
+        {"choice": "skip", "reason": "bored"},
+        {"choice": "castle"},
+        {},
+    ):
+        assert put_choice(client, trip_id, **body).status_code == 422, body
+    assert stored_choice(trip_id) is None

@@ -10,7 +10,7 @@ from typing import get_args
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models import USER_SOURCE, Activity, CostItem, Trip, TripDay
+from app.models import USER_SOURCE, Activity, CostItem, Trip, TripDay, TripLodging
 from app.schemas import BudgetCategory, BudgetOut, CategoryTotal, CostItemOut, DayTotal
 
 # Plans are generated in USD to match the trip budget (see services/llm.py).
@@ -91,6 +91,8 @@ def budget_summary(trip: Trip, db: Session) -> BudgetOut:
     total = sum(by_category.values())
 
     remaining = None if trip.budget is None else to_cents(trip.budget) - total
+    # The Where to stay choice's line is changed on the Stay tab, not here.
+    stay_line = db.scalar(select(TripLodging.cost_item_id).where(TripLodging.trip_id == trip.id))
 
     return BudgetOut(
         trip_id=trip.id,
@@ -106,5 +108,7 @@ def budget_summary(trip: Trip, db: Session) -> BudgetOut:
         budget=trip.budget,
         remaining=None if remaining is None else to_dollars(remaining),
         over_budget=None if remaining is None else remaining < 0,
-        items=[CostItemOut.model_validate(item) for item in items],
+        items=[
+            CostItemOut.model_validate(item).model_copy(update={"from_stay": item.id == stay_line}) for item in items
+        ],
     )
