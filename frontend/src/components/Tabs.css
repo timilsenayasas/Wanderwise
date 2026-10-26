@@ -18,6 +18,13 @@
   transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease;
 }
 
+/* Four trip tabs fit side by side on a 375px phone. */
+@media (max-width: 400px) {
+  .tabs__tab {
+    padding-inline: var(--space-3);
+  }
+}
+
 .tabs__tab:hover {
   color: var(--color-primary);
 }

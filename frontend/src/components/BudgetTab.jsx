@@ -14,7 +14,7 @@ import EmptyState from './EmptyState';
 import Spinner from './Spinner';
 import './BudgetTab.css';
 
-export default function BudgetTab({ trip, onShowItinerary }) {
+export default function BudgetTab({ trip, onShowItinerary, onShowStay }) {
   const [budget, setBudget] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [loadError, setLoadError] = useState('');
@@ -87,7 +87,7 @@ export default function BudgetTab({ trip, onShowItinerary }) {
           <BudgetBreakdown budget={budget} />
         </>
       )}
-      <CostLines trip={trip} items={budget.items} onChanged={() => load({ quiet: true })} />
+      <CostLines trip={trip} items={budget.items} onChanged={() => load({ quiet: true })} onShowStay={onShowStay} />
     </section>
   );
 }

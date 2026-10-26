@@ -1,0 +1,153 @@
+/* "Your stay": larger than a suggestion card, photo beside the details on wider screens. */
+.stay-choice {
+  display: grid;
+  gap: var(--space-4);
+  border-width: 2px;
+  border-color: var(--color-primary);
+  box-shadow: var(--shadow-md);
+  animation: fade-up var(--duration-slow) var(--ease-out) backwards;
+}
+
+@media (min-width: 720px) {
+  .stay-choice {
+    grid-template-columns: minmax(0, 2fr) minmax(0, 3fr);
+    align-items: start;
+  }
+
+  .stay-choice__edit {
+    grid-column: 1 / -1;
+  }
+}
+
+.stay-choice .hotel-photo {
+  border-radius: var(--radius-md);
+}
+
+.stay-choice__body {
+  display: grid;
+  gap: var(--space-4);
+  min-width: 0;
+}
+
+.stay-choice__body p {
+  margin: 0;
+}
+
+.stay-choice__top {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-3) var(--space-5);
+}
+
+.stay-choice__about {
+  display: grid;
+  gap: var(--space-2);
+  min-width: 0;
+}
+
+.stay-choice__title {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+}
+
+/* Focus lands here after choosing; the ring shows where keyboard users are. */
+.stay-choice__title:focus-visible {
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+  outline: none;
+}
+
+.stay-choice__name {
+  font-family: var(--font-display);
+  font-size: var(--text-2xl);
+  line-height: var(--leading-tight);
+  color: var(--color-text);
+  overflow-wrap: anywhere;
+}
+
+.stay-choice__price {
+  display: grid;
+  align-content: start;
+  justify-items: end;
+  text-align: right;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.stay-choice__nightly {
+  font-size: var(--text-xl);
+  font-weight: 700;
+  color: var(--color-text);
+}
+
+.stay-choice__label {
+  font-size: var(--text-xs);
+}
+
+.stay-choice__note {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-left: 4px solid var(--color-amber);
+  border-radius: var(--radius-sm);
+  background: var(--color-amber-soft);
+  color: var(--color-text);
+}
+
+.stay-choice__note p {
+  flex: 1 1 16rem;
+  min-width: 0;
+}
+
+.stay-choice__note .icon {
+  flex-shrink: 0;
+  color: var(--color-accent-strong);
+}
+
+.stay-choice__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}
+
+.stay-choice__confirm {
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-left: 4px solid var(--color-accent);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-deep);
+}
+
+.stay-choice__alert {
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-error-soft);
+  color: var(--color-error);
+  font-weight: 500;
+}
+
+/* ---- Skipped: one compact row ---- */
+.stay-choice--skip {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: start;
+}
+
+.stay-choice--skip .stay-choice__name {
+  font-size: var(--text-xl);
+}
+
+.stay-choice__icon {
+  display: grid;
+  place-items: center;
+  width: 2.5rem;
+  height: 2.5rem;
+  border-radius: var(--radius-pill);
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+}

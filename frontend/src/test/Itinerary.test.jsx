@@ -4,7 +4,8 @@ import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
 import Itinerary from '../pages/Itinerary';
-import { budgetResponse, emptyBudget } from './budgetFixtures';
+import { budgetResponse, emptyBudget, HOTEL } from './budgetFixtures';
+import { lodgingPage } from './lodgingFixtures';
 import { googleMaps, resetGoogleMaps } from './mockGoogleMaps';
 
 vi.mock('@vis.gl/react-google-maps', () => import('./mockGoogleMaps'));
@@ -64,11 +65,12 @@ function locatedPlan() {
   return plan;
 }
 
-/** GET /trips/7 returns TRIP; /plan returns `plan` (null = none saved yet); /budget a budget. */
-function mockLoad(plan, trip = TRIP, budget = budgetResponse()) {
+/** GET /trips/7 returns TRIP; /plan returns `plan` (null = none saved yet); /budget a budget; /lodging hotels. */
+function mockLoad(plan, trip = TRIP, budget = budgetResponse(), lodging = lodgingPage({ nights: 1 })) {
   api.get.mockImplementation((path) => {
     if (path.endsWith('/plan')) return Promise.resolve(plan);
     if (path.endsWith('/budget')) return Promise.resolve(budget);
+    if (path.endsWith('/lodging')) return Promise.resolve(lodging);
     return Promise.resolve(trip);
   });
 }
@@ -232,11 +234,13 @@ describe('Trip page tabs', () => {
     renderTrip();
     const itinerary = await screen.findByRole('tab', { name: 'Itinerary' });
     const budget = screen.getByRole('tab', { name: 'Budget' });
+    const stay = screen.getByRole('tab', { name: 'Stay' });
     const map = screen.getByRole('tab', { name: 'Map' });
 
     // Only the selected tab is in the Tab order.
     expect(itinerary).toHaveAttribute('tabindex', '0');
     expect(budget).toHaveAttribute('tabindex', '-1');
+    expect(stay).toHaveAttribute('tabindex', '-1');
     expect(map).toHaveAttribute('tabindex', '-1');
 
     itinerary.focus();
@@ -245,6 +249,8 @@ describe('Trip page tabs', () => {
     expect(budget).toHaveAttribute('aria-selected', 'true');
     expect(budget).toHaveAttribute('tabindex', '0');
 
+    await userEvent.keyboard('{ArrowRight}');
+    expect(stay).toHaveFocus();
     await userEvent.keyboard('{ArrowRight}');
     expect(map).toHaveFocus();
     await userEvent.keyboard('{ArrowRight}'); // wraps around
@@ -279,6 +285,46 @@ describe('Trip page tabs', () => {
     expect(itinerary).toHaveFocus();
     expect(screen.getByRole('button', { name: /generate ai itinerary/i })).toBeVisible();
     expect(screen.getByTestId('search')).toBeEmptyDOMElement();
+  });
+
+  it('opens the Stay tab from ?tab=stay', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip(undefined, '?tab=stay');
+
+    expect(await screen.findByRole('heading', { name: 'Where to stay in Chicago, IL' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Stay' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('article', { name: 'The Drake' })).toBeInTheDocument();
+    expect(api.get).toHaveBeenCalledWith('/trips/7/lodging');
+  });
+
+  it('searches for hotels only when Stay is first opened, not on every visit', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip();
+    await screen.findByText('Art Institute of Chicago');
+    expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Stay' }));
+    expect(await screen.findByRole('article', { name: 'The Drake' })).toBeInTheDocument();
+    expect(screen.getByTestId('search')).toHaveTextContent('?tab=stay');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Stay' }));
+
+    expect(screen.getByRole('article', { name: 'The Drake' })).toBeVisible();
+    expect(api.get.mock.calls.filter(([path]) => path === '/trips/7/lodging')).toHaveLength(1);
+  });
+
+  it("the Budget tab's Stay line leads to the Stay tab", async () => {
+    const stayLine = { ...HOTEL, description: 'Lodging', from_stay: true };
+    mockLoad(savedPlan('Art Institute of Chicago'), TRIP, budgetResponse({ items: [stayLine] }));
+    renderTrip(undefined, '?tab=budget');
+
+    await userEvent.click(await screen.findByRole('button', { name: 'Change on the Stay tab' }));
+
+    const stay = screen.getByRole('tab', { name: 'Stay' });
+    expect(stay).toHaveAttribute('aria-selected', 'true');
+    expect(stay).toHaveFocus();
+    expect(await screen.findByRole('heading', { name: 'Where to stay in Chicago, IL' })).toBeVisible();
   });
 
   it('opens the Map tab from ?tab=map', async () => {
