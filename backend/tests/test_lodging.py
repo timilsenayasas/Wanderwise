@@ -1,15 +1,28 @@
 """Where to stay: the traveler's lodging choice and hotel suggestions. Google and Gemini are faked."""
 
+from datetime import timedelta, timezone
+
 import httpx
 from conftest import register
+from fastapi.testclient import TestClient
 from sqlalchemy import select
 from test_places import fake_places, photo_uri, place
 from test_plan import FIRST_PLAN, SECOND_PLAN, use_fake_gemini
 
+from app import main
 from app.config import settings
 from app.database import Base, get_db
+from app.lodging import clear_stale_coords
 from app.main import app
-from app.models import LODGING_HOTEL, LODGING_OWN, USER_SOURCE, CostItem, TripHotelEstimate, TripLodging
+from app.models import (
+    LODGING_HOTEL,
+    LODGING_OWN,
+    USER_SOURCE,
+    CostItem,
+    TripHotelEstimate,
+    TripLodging,
+    utcnow,
+)
 
 VALID_TRIP = {
     "origin": "Dallas, TX",
@@ -774,3 +787,138 @@ def test_invalid_choices_are_422_with_clear_messages(client):
     ):
         assert put_choice(client, trip_id, **body).status_code == 422, body
     assert stored_choice(trip_id) is None
+
+
+# --- Map pin and the 30-day rule ------------------------------------------
+def get_pin(client, trip_id: int):
+    r = client.get(f"/api/trips/{trip_id}/lodging/pin")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def age_coords(trip_id: int, days: int) -> None:
+    """Pretend the stored coordinates were fetched `days` ago."""
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        row = db.scalar(select(TripLodging).where(TripLodging.trip_id == trip_id))
+        row.coords_fetched_at = utcnow() - timedelta(days=days)
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_pin_requires_login_and_ownership(client):
+    assert client.get("/api/trips/1/lodging/pin").status_code == 401
+
+    register(client)
+    trip_id = create_trip(client)
+    client.post("/api/auth/logout")
+    register(client, email="second@example.com")
+
+    assert client.get(f"/api/trips/{trip_id}/lodging/pin").status_code == 404
+
+
+def test_a_picked_hotel_has_a_pin_without_another_lookup(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    sent = suggest(client, monkeypatch, trip_id)
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+
+    assert get_pin(client, trip_id) == {"latitude": DRAKE_AT[0], "longitude": DRAKE_AT[1]}
+    assert len(location_requests(sent)) == 1  # only the one made when picking
+
+
+def test_no_choice_own_hotel_or_skip_have_no_pin(client):
+    register(client)
+    trip_id = create_trip(client)
+    assert get_pin(client, trip_id) is None
+
+    put_choice(client, trip_id, choice="own", name="Lake House", nightly_price=80, nights=2)
+    assert get_pin(client, trip_id) is None
+
+    put_choice(client, trip_id, choice="skip", reason="not_needed")
+    assert get_pin(client, trip_id) is None
+
+
+def test_coordinates_older_than_30_days_are_looked_up_again(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+    age_coords(trip_id, days=31)
+    sent = fake_places(monkeypatch, details={"p1": {"location": {"latitude": 41.95, "longitude": -87.65}}})
+
+    assert get_pin(client, trip_id) == {"latitude": 41.95, "longitude": -87.65}
+
+    assert [r["field_mask"] for r in sent] == ["location"]
+    row = stored_choice(trip_id)
+    assert (row.latitude, row.longitude) == (41.95, -87.65)
+    assert utcnow() - row.coords_fetched_at.replace(tzinfo=timezone.utc) < timedelta(minutes=1)
+
+
+def test_coordinates_under_30_days_old_are_kept(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+    age_coords(trip_id, days=29)
+    sent = fake_places(monkeypatch)
+
+    assert get_pin(client, trip_id) == {"latitude": DRAKE_AT[0], "longitude": DRAKE_AT[1]}
+    assert sent == []
+
+
+def test_old_coordinates_that_cant_be_refreshed_are_cleared(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id)
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+    age_coords(trip_id, days=31)
+    fake_places(monkeypatch, details={"p1": httpx.ConnectError("down")})
+
+    assert get_pin(client, trip_id) is None
+
+    row = stored_choice(trip_id)
+    assert (row.latitude, row.longitude, row.coords_fetched_at) == (None, None, None)
+    assert row.place_id == "p1"  # the choice itself stays
+
+
+def test_a_hotel_saved_without_a_location_gets_its_pin_later(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client)
+    suggest(client, monkeypatch, trip_id, locations={"p1": httpx.ConnectError("down"), "p2": {}})
+    put_choice(client, trip_id, choice="hotel", place_id="p1")
+    fake_places(monkeypatch, details={"p1": {"location": {"latitude": DRAKE_AT[0], "longitude": DRAKE_AT[1]}}})
+
+    assert get_pin(client, trip_id) == {"latitude": DRAKE_AT[0], "longitude": DRAKE_AT[1]}
+
+
+def test_cleanup_clears_only_coordinates_older_than_30_days(client):
+    register(client)
+    old, recent, none = create_trip(client), create_trip(client), create_trip(client)
+    set_choice(old, choice=LODGING_HOTEL, place_id="p1", latitude=41.9, longitude=-87.6, nightly_price=1, nights=1)
+    set_choice(recent, choice=LODGING_HOTEL, place_id="p2", latitude=41.8, longitude=-87.7, nightly_price=1, nights=1)
+    set_choice(none, choice=LODGING_OWN, custom_name="Lake House", nightly_price=1, nights=1)
+    age_coords(old, days=31)
+    age_coords(recent, days=2)
+
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        assert clear_stale_coords(db) == 1
+        db.commit()
+    finally:
+        db.close()
+
+    assert (stored_choice(old).latitude, stored_choice(old).coords_fetched_at) == (None, None)
+    assert stored_choice(old).place_id == "p1"
+    assert (stored_choice(recent).latitude, stored_choice(recent).longitude) == (41.8, -87.7)
+
+
+def test_startup_runs_the_cleanup(monkeypatch):
+    calls = []
+    monkeypatch.setattr(main, "clear_stale_coords", lambda db: calls.append(db) or 0)
+
+    with TestClient(app):
+        pass
+
+    assert len(calls) == 1

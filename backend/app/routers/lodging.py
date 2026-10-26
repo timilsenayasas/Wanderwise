@@ -7,9 +7,9 @@ Where to stay tab is opened or Refresh is pressed.
 from fastapi import APIRouter, HTTPException, status
 
 from app.database import DbSession
-from app.lodging import ChoiceError, choice_out, lodging_page, remove_choice, save_choice
+from app.lodging import ChoiceError, choice_out, hotel_pin, lodging_page, remove_choice, save_choice
 from app.routers.trips import get_own_trip
-from app.schemas import LodgingChoiceIn, LodgingChoiceOut, LodgingOut
+from app.schemas import LodgingChoiceIn, LodgingChoiceOut, LodgingOut, LodgingPinOut
 from app.security import CurrentUser
 
 router = APIRouter(prefix="/api/trips", tags=["where to stay"])
@@ -41,6 +41,14 @@ def set_lodging(trip_id: int, body: LodgingChoiceIn, user: CurrentUser, db: DbSe
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     db.commit()
     return choice_out(trip, db, found=[], look_up=False)
+
+
+@router.get("/{trip_id}/lodging/pin", response_model=LodgingPinOut | None)
+def get_lodging_pin(trip_id: int, user: CurrentUser, db: DbSession) -> LodgingPinOut | None:
+    """The chosen hotel's map pin, or null. No search: a location lookup only if it's missing or 30 days old."""
+    pin = hotel_pin(get_own_trip(trip_id, user, db), db)
+    db.commit()  # refreshed or cleared coordinates
+    return LodgingPinOut(latitude=pin[0], longitude=pin[1]) if pin else None
 
 
 @router.delete("/{trip_id}/lodging", status_code=status.HTTP_204_NO_CONTENT)

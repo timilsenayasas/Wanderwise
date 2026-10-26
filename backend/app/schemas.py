@@ -351,3 +351,10 @@ class LodgingOut(BaseModel):
     suggestions_status: Literal["ok", "not_configured", "unavailable"]
     # "no_budget": sorted by rating; "none_fit": no hotel fits what's left for lodging.
     fit_note: Literal["no_budget", "none_fit"] | None
+
+
+class LodgingPinOut(BaseModel):
+    """The chosen hotel on the Map tab (null when there's nothing to pin)."""
+
+    latitude: float
+    longitude: float

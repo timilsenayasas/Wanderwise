@@ -23,13 +23,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.database import SessionLocal
 from app.db_migrate import upgrade_database
+from app.lodging import clear_stale_coords
 from app.routers import auth, budget, lodging, plan, preferences, trips
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     upgrade_database()
+    # Google's Places terms: hotel coordinates are kept at most 30 days.
+    with SessionLocal() as db:
+        clear_stale_coords(db)
+        db.commit()
     yield
 
 

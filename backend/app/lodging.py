@@ -10,10 +10,11 @@ count against itself).
 
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.budget import PLAN_CURRENCY, budget_summary, to_cents, to_dollars
+from app.config import logger
 from app.models import (
     LODGING_HOTEL,
     LODGING_OWN,
@@ -153,6 +154,34 @@ def coords_are_fresh(row: TripLodging) -> bool:
 def set_coords(row: TripLodging, coords: Coordinates | None) -> None:
     row.latitude, row.longitude = coords if coords else (None, None)
     row.coords_fetched_at = utcnow() if coords else None
+
+
+def hotel_pin(trip: Trip, db: Session) -> Coordinates | None:
+    """The chosen hotel's coordinates for the map. Older than 30 days: looked up again, or cleared.
+
+    The traveler's own hotel and skips have no pin. The caller commits.
+    """
+    row = choice_row(trip, db)
+    if row is None or row.choice != LODGING_HOTEL or not row.place_id:
+        return None
+    if not coords_are_fresh(row):
+        set_coords(row, places.get_location(row.place_id))
+    return None if row.latitude is None else (row.latitude, row.longitude)
+
+
+def clear_stale_coords(db: Session) -> int:
+    """Clear every stored hotel coordinate older than 30 days, even ones nobody looks at. The caller commits.
+
+    Run at startup; hotel_pin refreshes a trip's own coordinates when the map opens.
+    """
+    result = db.execute(
+        update(TripLodging)
+        .where(TripLodging.coords_fetched_at < utcnow() - COORDS_MAX_AGE)
+        .values(latitude=None, longitude=None, coords_fetched_at=None)
+    )
+    if result.rowcount:
+        logger.info("Cleared %d hotel locations older than 30 days.", result.rowcount)
+    return result.rowcount
 
 
 def _check_nights(trip: Trip, nights: int) -> None:
