@@ -172,7 +172,7 @@ def hotel_pin(trip: Trip, db: Session) -> Coordinates | None:
 def clear_stale_coords(db: Session) -> int:
     """Clear every stored hotel coordinate older than 30 days, even ones nobody looks at. The caller commits.
 
-    Run at startup; hotel_pin refreshes a trip's own coordinates when the map opens.
+    Run at startup and whenever a map pin is requested; hotel_pin then refreshes that trip's own.
     """
     result = db.execute(
         update(TripLodging)

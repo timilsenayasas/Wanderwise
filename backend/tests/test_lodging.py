@@ -914,6 +914,19 @@ def test_cleanup_clears_only_coordinates_older_than_30_days(client):
     assert (stored_choice(recent).latitude, stored_choice(recent).longitude) == (41.8, -87.7)
 
 
+def test_any_pin_request_clears_every_trips_old_coordinates(client, monkeypatch):
+    register(client)
+    other, viewed = create_trip(client), create_trip(client)
+    set_choice(other, choice=LODGING_HOTEL, place_id="p1", latitude=41.9, longitude=-87.6, nightly_price=1, nights=1)
+    age_coords(other, days=31)
+    sent = fake_places(monkeypatch)
+
+    assert get_pin(client, viewed) is None  # no choice on this trip
+
+    assert (stored_choice(other).latitude, stored_choice(other).coords_fetched_at) == (None, None)
+    assert sent == []  # the other trip's hotel isn't looked up, only cleared
+
+
 def test_startup_runs_the_cleanup(monkeypatch):
     calls = []
     monkeypatch.setattr(main, "clear_stale_coords", lambda db: calls.append(db) or 0)

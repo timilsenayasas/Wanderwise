@@ -7,7 +7,15 @@ Where to stay tab is opened or Refresh is pressed.
 from fastapi import APIRouter, HTTPException, status
 
 from app.database import DbSession
-from app.lodging import ChoiceError, choice_out, hotel_pin, lodging_page, remove_choice, save_choice
+from app.lodging import (
+    ChoiceError,
+    choice_out,
+    clear_stale_coords,
+    hotel_pin,
+    lodging_page,
+    remove_choice,
+    save_choice,
+)
 from app.routers.trips import get_own_trip
 from app.schemas import LodgingChoiceIn, LodgingChoiceOut, LodgingOut, LodgingPinOut
 from app.security import CurrentUser
@@ -46,7 +54,10 @@ def set_lodging(trip_id: int, body: LodgingChoiceIn, user: CurrentUser, db: DbSe
 @router.get("/{trip_id}/lodging/pin", response_model=LodgingPinOut | None)
 def get_lodging_pin(trip_id: int, user: CurrentUser, db: DbSession) -> LodgingPinOut | None:
     """The chosen hotel's map pin, or null. No search: a location lookup only if it's missing or 30 days old."""
-    pin = hotel_pin(get_own_trip(trip_id, user, db), db)
+    trip = get_own_trip(trip_id, user, db)
+    # Every trip's, not just this one's: so old coordinates go even on a server that never restarts.
+    clear_stale_coords(db)
+    pin = hotel_pin(trip, db)
     db.commit()  # refreshed or cleared coordinates
     return LodgingPinOut(latitude=pin[0], longitude=pin[1]) if pin else None
 
