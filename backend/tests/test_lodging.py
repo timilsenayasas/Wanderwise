@@ -1,11 +1,15 @@
-"""Where to stay: the traveler's lodging choice and hotel suggestions."""
+"""Where to stay: the traveler's lodging choice and hotel suggestions. Google and Gemini are faked."""
 
+import httpx
 from conftest import register
 from sqlalchemy import select
+from test_places import fake_places, photo_uri, place
+from test_plan import use_fake_gemini
 
-from app.database import get_db
+from app.config import settings
+from app.database import Base, get_db
 from app.main import app
-from app.models import LODGING_HOTEL, USER_SOURCE, CostItem, TripHotelEstimate, TripLodging
+from app.models import LODGING_HOTEL, LODGING_OWN, USER_SOURCE, CostItem, TripHotelEstimate, TripLodging
 
 VALID_TRIP = {
     "origin": "Dallas, TX",
@@ -66,3 +70,411 @@ def test_deleting_a_trip_removes_its_lodging_rows(client):
     assert trip_ids_with(TripLodging) == {kept}
     assert trip_ids_with(TripHotelEstimate) == {kept}
     assert trip_ids_with(CostItem) == {kept}
+
+
+# --- Suggestions ----------------------------------------------------------
+DRAKE = place("p1", "The Drake")
+LUX = place("p2", "Hotel Lux", rating=4.2, userRatingCount=310)
+
+
+def prices(**nightly) -> dict:
+    """Gemini's answer: place_id -> nightly USD."""
+    return {"prices": [{"place_id": place_id, "nightly_usd": usd} for place_id, usd in nightly.items()]}
+
+
+def get_lodging(client, trip_id: int) -> dict:
+    r = client.get(f"/api/trips/{trip_id}/lodging")
+    assert r.status_code == 200, r.text
+    return r.json()
+
+
+def by_id(page: dict) -> dict[str, dict]:
+    return {s["place_id"]: s for s in page["suggestions"]}
+
+
+def stored_estimates(trip_id: int) -> dict[str, float | None]:
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        rows = db.scalars(select(TripHotelEstimate).where(TripHotelEstimate.trip_id == trip_id))
+        return {row.place_id: row.nightly_price for row in rows}
+    finally:
+        db.close()
+
+
+def set_choice(trip_id: int, **fields) -> None:
+    """A lodging choice written straight to the database (PUT comes in a later step)."""
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        db.add(TripLodging(trip_id=trip_id, **fields))
+        db.commit()
+    finally:
+        db.close()
+
+
+def test_lodging_requires_login(client):
+    assert client.get("/api/trips/1/lodging").status_code == 401
+    assert client.post("/api/trips/1/lodging/refresh").status_code == 401
+
+
+def test_another_users_trip_returns_404(client):
+    register(client)
+    trip_id = create_trip(client)
+    client.post("/api/auth/logout")
+    register(client, email="second@example.com")
+
+    assert client.get(f"/api/trips/{trip_id}/lodging").status_code == 404
+    assert client.post(f"/api/trips/{trip_id}/lodging/refresh").status_code == 404
+
+
+def test_suggestions_have_details_estimates_and_attribution(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE, LUX]})
+    use_fake_gemini(monkeypatch, prices(p1=140, p2=300))
+    register(client)
+    trip_id = create_trip(client)
+
+    page = get_lodging(client, trip_id)
+
+    assert page["nights"] == 4
+    assert page["currency"] == "USD"
+    assert page["lodging_budget_left"] == 2000
+    assert page["suggestions_status"] == "ok"
+    assert page["choice"] is None
+    assert page["fit_note"] is None
+    assert page["suggestions"][0] == {
+        "place_id": "p1",
+        "name": "The Drake",
+        "area": "Near North Side",
+        "address": "1 The Drake St, Chicago, IL 60611, USA",
+        "rating": 4.6,
+        "review_count": 1284,
+        "google_maps_uri": "https://maps.google.com/?cid=p1",
+        "photo": {
+            "uri": photo_uri("p1"),
+            "authors": [{"name": "Sam Lee", "uri": "https://maps.google.com/maps/contrib/1"}],
+        },
+        "nightly_estimate": 140,
+        "stay_total": 560,
+        "fit": "fits",
+        "best_fit": True,
+    }
+    assert by_id(page)["p2"]["stay_total"] == 1200
+
+
+def test_the_estimate_prompt_describes_the_trip_and_hotels(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE, LUX]})
+    prompts = use_fake_gemini(monkeypatch, prices(p1=140, p2=300))
+    register(client)
+    trip_id = create_trip(client)
+
+    get_lodging(client, trip_id)
+
+    [prompt] = prompts
+    for expected in (
+        "Destination: Chicago, IL",
+        "Check-in: 2026-10-10",
+        "Check-out: 2026-10-14",
+        "Number of travelers: 2",
+        "- id: p1 | The Drake | Near North Side",
+        "- id: p2 | Hotel Lux | Near North Side",
+        "USD",
+    ):
+        assert expected in prompt
+
+
+def test_estimates_are_kept_but_google_is_asked_every_time(client, monkeypatch):
+    sent = fake_places(monkeypatch, search={"places": [DRAKE, LUX]})
+    prompts = use_fake_gemini(monkeypatch, prices(p1=140, p2=300))
+    register(client)
+    trip_id = create_trip(client)
+
+    get_lodging(client, trip_id)
+    again = get_lodging(client, trip_id)
+
+    assert len(prompts) == 1  # our own estimates are reused
+    assert len([r for r in sent if r["url"].endswith("searchText")]) == 2  # Google content is never cached
+    assert by_id(again)["p1"]["nightly_estimate"] == 140
+    assert stored_estimates(trip_id) == {"p1": 140, "p2": 300}
+
+
+def test_only_new_hotels_are_priced(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE]})
+    prompts = use_fake_gemini(monkeypatch, prices(p1=140), prices(p2=300))
+    register(client)
+    trip_id = create_trip(client)
+    get_lodging(client, trip_id)
+
+    fake_places(monkeypatch, search={"places": [DRAKE, LUX]})
+    page = get_lodging(client, trip_id)
+
+    assert "id: p2" in prompts[1] and "id: p1" not in prompts[1]
+    assert {k: v["nightly_estimate"] for k, v in by_id(page).items()} == {"p1": 140, "p2": 300}
+
+
+def test_refresh_searches_again_and_reestimates_every_hotel(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE, LUX]})
+    prompts = use_fake_gemini(monkeypatch, prices(p1=140, p2=300), prices(p1=150, p2=310))
+    register(client)
+    trip_id = create_trip(client)
+    get_lodging(client, trip_id)
+
+    r = client.post(f"/api/trips/{trip_id}/lodging/refresh")
+
+    assert r.status_code == 200
+    assert "id: p1" in prompts[1] and "id: p2" in prompts[1]
+    assert {k: v["nightly_estimate"] for k, v in by_id(r.json()).items()} == {"p1": 150, "p2": 310}
+    assert stored_estimates(trip_id) == {"p1": 150, "p2": 310}
+
+
+def test_a_failed_refresh_keeps_the_earlier_estimates(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE]})
+    use_fake_gemini(monkeypatch, prices(p1=140), "not json")
+    register(client)
+    trip_id = create_trip(client)
+    get_lodging(client, trip_id)
+
+    page = client.post(f"/api/trips/{trip_id}/lodging/refresh").json()
+
+    assert page["suggestions"][0]["nightly_estimate"] == 140
+
+
+def test_without_an_estimate_hotels_still_show_and_are_priced_next_time(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE]})
+    prompts = use_fake_gemini(monkeypatch, "not json", prices(p1=140))
+    register(client)
+    trip_id = create_trip(client)
+
+    first = get_lodging(client, trip_id)["suggestions"][0]
+    assert first["name"] == "The Drake"
+    assert [first[key] for key in ("nightly_estimate", "stay_total", "fit", "best_fit")] == [None, None, None, False]
+    assert stored_estimates(trip_id) == {"p1": None}  # still marked as suggested, so it can be picked
+
+    assert get_lodging(client, trip_id)["suggestions"][0]["nightly_estimate"] == 140
+    assert len(prompts) == 2
+
+
+def test_bad_estimates_are_ignored(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE, LUX, place("p3", "Hotel Three")]})
+    answer = {
+        "prices": [
+            {"place_id": "p1", "nightly_usd": -5},
+            {"place_id": "p2", "nightly_usd": "cheap"},
+            {"place_id": "p3", "nightly_usd": 99.999},
+            {"place_id": "unknown", "nightly_usd": 100},
+        ]
+    }
+    use_fake_gemini(monkeypatch, answer)
+    register(client)
+    trip_id = create_trip(client)
+
+    page = get_lodging(client, trip_id)
+
+    assert {k: v["nightly_estimate"] for k, v in by_id(page).items()} == {"p1": None, "p2": None, "p3": 100.0}
+    assert "unknown" not in stored_estimates(trip_id)
+
+
+# --- Budget fit -----------------------------------------------------------
+def test_fit_bands_order_and_one_best_fit(client, monkeypatch):
+    hotels = [
+        place("over", "Over", rating=5.0),
+        place("slight", "Slightly", rating=4.9),
+        place("edge", "Edge", rating=4.2),
+        place("cheap", "Cheap", rating=4.8),
+    ]
+    fake_places(monkeypatch, search={"places": hotels})
+    use_fake_gemini(monkeypatch, prices(over=441, slight=440, edge=400, cheap=300))
+    register(client)
+    trip_id = create_trip(client)
+    client.post(f"/api/trips/{trip_id}/cost-items", json={"category": "food", "amount": 400})
+
+    page = get_lodging(client, trip_id)
+
+    # 2000 budget - 400 food = 1600 for 4 nights. Up to 1760 (10% over) is "slightly over".
+    assert page["lodging_budget_left"] == 1600
+    assert [(s["place_id"], s["stay_total"], s["fit"]) for s in page["suggestions"]] == [
+        ("cheap", 1200, "fits"),
+        ("edge", 1600, "fits"),
+        ("slight", 1760, "slightly_over"),
+        ("over", 1764, "over"),
+    ]
+    assert [s["place_id"] for s in page["suggestions"] if s["best_fit"]] == ["cheap"]
+    assert page["fit_note"] is None
+
+
+def test_lodging_lines_dont_count_against_the_lodging_budget(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE]})
+    use_fake_gemini(monkeypatch, prices(p1=140))
+    register(client)
+    trip_id = create_trip(client)
+    client.post(f"/api/trips/{trip_id}/cost-items", json={"category": "food", "amount": 400})
+    client.post(f"/api/trips/{trip_id}/cost-items", json={"category": "lodging", "amount": 900})
+
+    assert get_lodging(client, trip_id)["lodging_budget_left"] == 1600
+
+
+def test_when_nothing_fits_there_is_no_best_fit(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE, LUX]})
+    use_fake_gemini(monkeypatch, prices(p1=140, p2=300))
+    register(client)
+    trip_id = create_trip(client, budget=520)
+
+    page = get_lodging(client, trip_id)
+
+    assert page["fit_note"] == "none_fit"
+    # 520 left: 560 is within 10% (572), 1200 isn't.
+    assert [s["fit"] for s in page["suggestions"]] == ["slightly_over", "over"]
+    assert not any(s["best_fit"] for s in page["suggestions"])
+
+
+def test_already_over_budget_makes_every_hotel_over(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE]})
+    use_fake_gemini(monkeypatch, prices(p1=140))
+    register(client)
+    trip_id = create_trip(client, budget=100)
+    client.post(f"/api/trips/{trip_id}/cost-items", json={"category": "food", "amount": 150})
+
+    page = get_lodging(client, trip_id)
+
+    assert page["lodging_budget_left"] == -50
+    assert page["suggestions"][0]["fit"] == "over"
+
+
+def test_without_a_budget_hotels_are_sorted_by_rating(client, monkeypatch):
+    hotels = [place("low", "Low", rating=3.9), place("top", "Top", rating=4.9), place("mid", "Mid", rating=4.5)]
+    fake_places(monkeypatch, search={"places": hotels})
+    use_fake_gemini(monkeypatch, prices(low=90, top=400, mid=200))
+    register(client)
+    trip_id = create_trip(client, budget=None)
+
+    page = get_lodging(client, trip_id)
+
+    assert page["fit_note"] == "no_budget"
+    assert page["lodging_budget_left"] is None
+    assert [s["place_id"] for s in page["suggestions"]] == ["top", "mid", "low"]
+    assert {s["fit"] for s in page["suggestions"]} == {None}
+    assert not any(s["best_fit"] for s in page["suggestions"])
+
+
+def test_a_same_day_trip_counts_one_night(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE]})
+    use_fake_gemini(monkeypatch, prices(p1=140))
+    register(client)
+    trip_id = create_trip(client, end_date="2026-10-10")
+
+    page = get_lodging(client, trip_id)
+
+    assert page["nights"] == 1
+    assert page["suggestions"][0]["stay_total"] == 140
+
+
+# --- Fallbacks ------------------------------------------------------------
+def test_without_a_key_the_page_still_works(client, monkeypatch):
+    prompts = use_fake_gemini(monkeypatch)
+    register(client)
+    trip_id = create_trip(client)
+    set_choice(trip_id, choice=LODGING_OWN, custom_name="Lake House", nightly_price=0, nights=4)
+
+    page = get_lodging(client, trip_id)
+
+    assert page["suggestions_status"] == "not_configured"
+    assert page["suggestions"] == []
+    assert page["choice"]["custom_name"] == "Lake House"
+    assert prompts == []
+
+
+def test_without_a_gemini_key_hotels_show_without_estimates(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE]})
+    monkeypatch.setattr(settings, "llm_api_key", "")
+    register(client)
+    trip_id = create_trip(client)
+
+    page = get_lodging(client, trip_id)
+
+    assert page["suggestions"][0]["name"] == "The Drake"
+    assert page["suggestions"][0]["nightly_estimate"] is None
+
+
+def test_a_places_error_still_shows_the_page(client, monkeypatch):
+    fake_places(monkeypatch, search=httpx.ConnectError("down"))
+    prompts = use_fake_gemini(monkeypatch)
+    register(client)
+    trip_id = create_trip(client)
+
+    page = get_lodging(client, trip_id)
+
+    assert page["suggestions_status"] == "unavailable"
+    assert page["suggestions"] == []
+    assert prompts == []
+
+
+# --- Current choice -------------------------------------------------------
+def test_a_chosen_hotel_in_the_results_needs_no_extra_lookup(client, monkeypatch):
+    sent = fake_places(monkeypatch, search={"places": [DRAKE, LUX]})
+    use_fake_gemini(monkeypatch, prices(p2=300))
+    register(client)
+    trip_id = create_trip(client)
+    add_lodging_rows(trip_id, place_id="p1")  # chose The Drake at 140 x 4
+
+    choice = get_lodging(client, trip_id)["choice"]
+
+    assert choice["choice"] == "hotel"
+    assert choice["hotel"]["name"] == "The Drake"
+    assert choice["hotel"]["photo"]["uri"] == photo_uri("p1")
+    assert (choice["nightly_price"], choice["nights"], choice["total"]) == (140, 4, 560)
+    assert choice["nights_exceed_trip"] is False
+    assert not any(r["url"].endswith("/places/p1") for r in sent)
+
+
+def test_a_chosen_hotel_not_in_the_results_is_looked_up(client, monkeypatch):
+    sent = fake_places(monkeypatch, search={"places": [LUX]}, details={"p1": place("p1", "The Drake")})
+    use_fake_gemini(monkeypatch, prices(p2=300))
+    register(client)
+    trip_id = create_trip(client)
+    add_lodging_rows(trip_id, place_id="p1")
+
+    choice = get_lodging(client, trip_id)["choice"]
+
+    assert choice["hotel"]["name"] == "The Drake"
+    assert [r["url"] for r in sent if r["url"].endswith("/places/p1")] == ["https://places.googleapis.com/v1/places/p1"]
+
+
+def test_a_chosen_hotel_google_cant_find_still_shows_its_price(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [LUX]}, details={"p1": httpx.ConnectError("down")})
+    use_fake_gemini(monkeypatch, prices(p2=300))
+    register(client)
+    trip_id = create_trip(client)
+    add_lodging_rows(trip_id, place_id="p1")
+
+    choice = get_lodging(client, trip_id)["choice"]
+
+    assert choice["hotel"] is None
+    assert (choice["place_id"], choice["total"]) == ("p1", 560)
+
+
+def test_shortened_dates_are_flagged_on_the_choice(client, monkeypatch):
+    use_fake_gemini(monkeypatch)
+    register(client)
+    trip_id = create_trip(client)
+    set_choice(trip_id, choice=LODGING_OWN, custom_name="Lake Inn", nightly_price=120.5, nights=4)
+    client.put(f"/api/trips/{trip_id}", json={**VALID_TRIP, "end_date": "2026-10-12"})
+
+    choice = get_lodging(client, trip_id)["choice"]
+
+    assert choice["nights_exceed_trip"] is True
+    assert choice["total"] == 482
+
+
+def test_nothing_from_google_is_stored(client, monkeypatch):
+    fake_places(monkeypatch, search={"places": [DRAKE, LUX]})
+    use_fake_gemini(monkeypatch, prices(p1=140, p2=300))
+    register(client)
+    trip_id = create_trip(client)
+    add_lodging_rows(trip_id, place_id="p1")
+    client.post(f"/api/trips/{trip_id}/lodging/refresh")
+
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        everything = repr([db.execute(table.select()).all() for table in Base.metadata.sorted_tables])
+    finally:
+        db.close()
+    for google_content in ("The Drake", "Hotel Lux", "Near North Side", "Sam Lee", "googleusercontent", "cid="):
+        assert google_content not in everything

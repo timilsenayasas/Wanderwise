@@ -228,3 +228,66 @@ class BudgetOut(BaseModel):
     remaining: float | None  # budget - total; negative when over budget
     over_budget: bool | None
     items: list[CostItemOut]
+
+
+# --- Where to stay --------------------------------------------------------
+# How a hotel's stay total compares to the budget left for lodging (see lodging.py).
+LodgingFit = Literal["fits", "slightly_over", "over"]
+LodgingChoice = Literal["hotel", "own", "skip"]
+SkipReason = Literal["have_place", "not_needed"]
+
+
+class PhotoAuthorOut(BaseModel):
+    """Google requires every photo to credit its authors, linked to their profile."""
+
+    name: str
+    uri: str | None
+
+
+class HotelPhotoOut(BaseModel):
+    uri: str  # Google's image URL; short-lived, never stored
+    authors: list[PhotoAuthorOut]
+
+
+class HotelOut(BaseModel):
+    """A hotel's details, fetched fresh from Google Places each time (never stored)."""
+
+    place_id: str
+    name: str
+    area: str
+    address: str
+    rating: float | None
+    review_count: int | None
+    google_maps_uri: str | None
+    photo: HotelPhotoOut | None
+
+
+class HotelSuggestionOut(HotelOut):
+    nightly_estimate: float | None  # AI estimate in USD; None if it couldn't be estimated
+    stay_total: float | None  # nightly_estimate x the trip's nights
+    fit: LodgingFit | None  # None without a trip budget or an estimate
+    best_fit: bool  # true on at most one suggestion
+
+
+class LodgingChoiceOut(BaseModel):
+    choice: LodgingChoice
+    skip_reason: SkipReason | None
+    place_id: str | None
+    hotel: HotelOut | None  # a picked hotel's details; None if Google couldn't be reached
+    custom_name: str | None  # the traveler's own hotel
+    nightly_price: float | None
+    nights: int | None
+    total: float | None  # nightly_price x nights, the Lodging cost line's amount
+    nights_exceed_trip: bool  # the trip's dates were shortened after choosing
+
+
+class LodgingOut(BaseModel):
+    trip_id: int
+    currency: str
+    nights: int  # the trip's nights, at least 1
+    lodging_budget_left: float | None  # trip budget minus everything except lodging
+    choice: LodgingChoiceOut | None
+    suggestions: list[HotelSuggestionOut]
+    suggestions_status: Literal["ok", "not_configured", "unavailable"]
+    # "no_budget": sorted by rating; "none_fit": no hotel fits what's left for lodging.
+    fit_note: Literal["no_budget", "none_fit"] | None
