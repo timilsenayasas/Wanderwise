@@ -293,11 +293,11 @@ def _nightly_price(v: float | None) -> float | None:
 def _at_least_one_night(v: int | None) -> int | None:
     if v is not None and v < 1:
         raise ValueError("Nights must be at least 1")
-    return v  # the most is the trip's length (checked in lodging.py)
+    return v  # the most is the stay's length (checked in lodging.py)
 
 
 class HotelChoiceIn(BaseModel):
-    """Pick a suggested hotel. Without a price, its estimate is used; without nights, the whole trip."""
+    """Pick a suggested hotel. Without a price, its estimate is used; without nights, the whole stay."""
 
     choice: Literal["hotel"]
     place_id: str = Field(min_length=1, max_length=255)
@@ -349,24 +349,60 @@ class LodgingChoiceOut(BaseModel):
     nightly_price: float | None
     nights: int | None
     total: float | None  # nightly_price x nights, the Lodging cost line's amount
-    fit: LodgingFit | None  # total against the budget left for lodging; None for skips or without a budget
-    nights_exceed_trip: bool  # the trip's dates were shortened after choosing
+    fit: LodgingFit | None  # total against the budget left for this stay; None for skips or without a budget
+    nights_exceed_stay: bool  # the stay got shorter (dates or a new plan) after choosing
 
 
-class LodgingOut(BaseModel):
+class StayOut(BaseModel):
+    """A run of nights in one base city (worked out from the plan, not stored) and its choice."""
+
+    number: int  # 1 for the first stay; choices are matched to stays by this
+    city: str
+    check_in: date
+    check_out: date
+    nights: int
+    budget_left: float | None  # the lodging budget minus the other stays' choices
+    # Without Google details in the overview; with them on the stay's own page.
+    choice: LodgingChoiceOut | None
+    plan_changed: bool  # the choice was made for a different city than this stay now has
+    choice_city: str | None  # the city the choice was made for
+
+
+class EarlierChoiceOut(BaseModel):
+    """A choice for a stay the current plan no longer has. Its Lodging line stays until it's removed."""
+
+    number: int
+    city: str | None
+    choice: LodgingChoiceOut
+
+
+class LodgingOverviewOut(BaseModel):
+    """Every stay and its choice, without any Google calls (Stay tab, Itinerary)."""
+
     trip_id: int
     currency: str
-    nights: int  # the trip's nights, at least 1
     lodging_budget_left: float | None  # trip budget minus everything except lodging
-    choice: LodgingChoiceOut | None
+    stays: list[StayOut]  # always at least one
+    earlier_choices: list[EarlierChoiceOut]
+
+
+class StayPageOut(BaseModel):
+    """One stay's section: fresh hotel suggestions for its city, and its choice with Google details."""
+
+    trip_id: int
+    currency: str
+    lodging_budget_left: float | None
+    stay: StayOut
     suggestions: list[HotelSuggestionOut]
     suggestions_status: Literal["ok", "not_configured", "unavailable"]
-    # "no_budget": sorted by rating; "none_fit": no hotel fits what's left for lodging.
+    # "no_budget": sorted by rating; "none_fit": no hotel fits what's left for this stay.
     fit_note: Literal["no_budget", "none_fit"] | None
 
 
 class LodgingPinOut(BaseModel):
-    """The chosen hotel on the Map tab (null when there's nothing to pin)."""
+    """A stay's picked hotel on the Map tab."""
 
+    stay_number: int
+    city: str
     latitude: float
     longitude: float

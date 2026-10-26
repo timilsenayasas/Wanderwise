@@ -96,7 +96,7 @@ def prices(**nightly) -> dict:
 
 
 def get_lodging(client, trip_id: int) -> dict:
-    r = client.get(f"/api/trips/{trip_id}/lodging")
+    r = client.get(f"/api/trips/{trip_id}/lodging/stays/1")
     assert r.status_code == 200, r.text
     return r.json()
 
@@ -125,8 +125,8 @@ def set_choice(trip_id: int, **fields) -> None:
 
 
 def test_lodging_requires_login(client):
-    assert client.get("/api/trips/1/lodging").status_code == 401
-    assert client.post("/api/trips/1/lodging/refresh").status_code == 401
+    assert client.get("/api/trips/1/lodging/stays/1").status_code == 401
+    assert client.post("/api/trips/1/lodging/stays/1/refresh").status_code == 401
 
 
 def test_another_users_trip_returns_404(client):
@@ -135,8 +135,8 @@ def test_another_users_trip_returns_404(client):
     client.post("/api/auth/logout")
     register(client, email="second@example.com")
 
-    assert client.get(f"/api/trips/{trip_id}/lodging").status_code == 404
-    assert client.post(f"/api/trips/{trip_id}/lodging/refresh").status_code == 404
+    assert client.get(f"/api/trips/{trip_id}/lodging/stays/1").status_code == 404
+    assert client.post(f"/api/trips/{trip_id}/lodging/stays/1/refresh").status_code == 404
 
 
 def test_suggestions_have_details_estimates_and_attribution(client, monkeypatch):
@@ -147,11 +147,11 @@ def test_suggestions_have_details_estimates_and_attribution(client, monkeypatch)
 
     page = get_lodging(client, trip_id)
 
-    assert page["nights"] == 4
+    assert page["stay"]["nights"] == 4
     assert page["currency"] == "USD"
     assert page["lodging_budget_left"] == 2000
     assert page["suggestions_status"] == "ok"
-    assert page["choice"] is None
+    assert page["stay"]["choice"] is None
     assert page["fit_note"] is None
     assert page["suggestions"][0] == {
         "place_id": "p1",
@@ -230,7 +230,7 @@ def test_refresh_searches_again_and_reestimates_every_hotel(client, monkeypatch)
     trip_id = create_trip(client)
     get_lodging(client, trip_id)
 
-    r = client.post(f"/api/trips/{trip_id}/lodging/refresh")
+    r = client.post(f"/api/trips/{trip_id}/lodging/stays/1/refresh")
 
     assert r.status_code == 200
     assert "id: p1" in prompts[1] and "id: p2" in prompts[1]
@@ -245,7 +245,7 @@ def test_a_failed_refresh_keeps_the_earlier_estimates(client, monkeypatch):
     trip_id = create_trip(client)
     get_lodging(client, trip_id)
 
-    page = client.post(f"/api/trips/{trip_id}/lodging/refresh").json()
+    page = client.post(f"/api/trips/{trip_id}/lodging/stays/1/refresh").json()
 
     assert page["suggestions"][0]["nightly_estimate"] == 140
 
@@ -375,7 +375,7 @@ def test_a_same_day_trip_counts_one_night(client, monkeypatch):
 
     page = get_lodging(client, trip_id)
 
-    assert page["nights"] == 1
+    assert page["stay"]["nights"] == 1
     assert page["suggestions"][0]["stay_total"] == 140
 
 
@@ -390,7 +390,7 @@ def test_without_a_key_the_page_still_works(client, monkeypatch):
 
     assert page["suggestions_status"] == "not_configured"
     assert page["suggestions"] == []
-    assert page["choice"]["custom_name"] == "Lake House"
+    assert page["stay"]["choice"]["custom_name"] == "Lake House"
     assert prompts == []
 
 
@@ -427,13 +427,13 @@ def test_a_chosen_hotel_in_the_results_needs_no_extra_lookup(client, monkeypatch
     trip_id = create_trip(client)
     add_lodging_rows(trip_id, place_id="p1")  # chose The Drake at 140 x 4
 
-    choice = get_lodging(client, trip_id)["choice"]
+    choice = get_lodging(client, trip_id)["stay"]["choice"]
 
     assert choice["choice"] == "hotel"
     assert choice["hotel"]["name"] == "The Drake"
     assert choice["hotel"]["photo"]["uri"] == photo_uri("p1")
     assert (choice["nightly_price"], choice["nights"], choice["total"]) == (140, 4, 560)
-    assert choice["nights_exceed_trip"] is False
+    assert choice["nights_exceed_stay"] is False
     assert not any(r["url"].endswith("/places/p1") for r in sent)
 
 
@@ -444,7 +444,7 @@ def test_a_chosen_hotel_not_in_the_results_is_looked_up(client, monkeypatch):
     trip_id = create_trip(client)
     add_lodging_rows(trip_id, place_id="p1")
 
-    choice = get_lodging(client, trip_id)["choice"]
+    choice = get_lodging(client, trip_id)["stay"]["choice"]
 
     assert choice["hotel"]["name"] == "The Drake"
     assert [r["url"] for r in sent if r["url"].endswith("/places/p1")] == ["https://places.googleapis.com/v1/places/p1"]
@@ -457,7 +457,7 @@ def test_a_chosen_hotel_google_cant_find_still_shows_its_price(client, monkeypat
     trip_id = create_trip(client)
     add_lodging_rows(trip_id, place_id="p1")
 
-    choice = get_lodging(client, trip_id)["choice"]
+    choice = get_lodging(client, trip_id)["stay"]["choice"]
 
     assert choice["hotel"] is None
     assert (choice["place_id"], choice["total"]) == ("p1", 560)
@@ -470,9 +470,9 @@ def test_shortened_dates_are_flagged_on_the_choice(client, monkeypatch):
     set_choice(trip_id, choice=LODGING_OWN, custom_name="Lake Inn", nightly_price=120.5, nights=4)
     client.put(f"/api/trips/{trip_id}", json={**VALID_TRIP, "end_date": "2026-10-12"})
 
-    choice = get_lodging(client, trip_id)["choice"]
+    choice = get_lodging(client, trip_id)["stay"]["choice"]
 
-    assert choice["nights_exceed_trip"] is True
+    assert choice["nights_exceed_stay"] is True
     assert choice["total"] == 482
 
 
@@ -482,7 +482,7 @@ def test_nothing_from_google_is_stored(client, monkeypatch):
     register(client)
     trip_id = create_trip(client)
     add_lodging_rows(trip_id, place_id="p1")
-    client.post(f"/api/trips/{trip_id}/lodging/refresh")
+    client.post(f"/api/trips/{trip_id}/lodging/stays/1/refresh")
 
     db = next(app.dependency_overrides[get_db]())
     try:
@@ -507,8 +507,13 @@ def suggest(client, monkeypatch, trip_id: int, estimates=None, locations=None) -
     return sent
 
 
-def put_choice(client, trip_id: int, **body):
-    return client.put(f"/api/trips/{trip_id}/lodging", json=body)
+def put_choice(client, trip_id: int, stay: int = 1, **body):
+    return client.put(f"/api/trips/{trip_id}/lodging/stays/{stay}", json=body)
+
+
+def choice_of(response, stay: int = 1) -> dict | None:
+    """A stay's choice in the overview that PUT and DELETE answer with."""
+    return response.json()["stays"][stay - 1]["choice"]
 
 
 def lodging_lines(trip_id: int) -> list[tuple]:
@@ -534,8 +539,9 @@ def location_requests(sent: list[dict]) -> list[dict]:
 
 
 def test_choose_requires_login_and_ownership(client):
-    assert client.put("/api/trips/1/lodging", json={"choice": "skip", "reason": "not_needed"}).status_code == 401
-    assert client.delete("/api/trips/1/lodging").status_code == 401
+    skip = {"choice": "skip", "reason": "not_needed"}
+    assert client.put("/api/trips/1/lodging/stays/1", json=skip).status_code == 401
+    assert client.delete("/api/trips/1/lodging/stays/1").status_code == 401
 
     register(client)
     trip_id = create_trip(client)
@@ -543,7 +549,7 @@ def test_choose_requires_login_and_ownership(client):
     register(client, email="second@example.com")
 
     assert put_choice(client, trip_id, choice="skip", reason="not_needed").status_code == 404
-    assert client.delete(f"/api/trips/{trip_id}/lodging").status_code == 404
+    assert client.delete(f"/api/trips/{trip_id}/lodging/stays/1").status_code == 404
 
 
 def test_picking_a_hotel_uses_its_estimate_for_the_whole_trip(client, monkeypatch):
@@ -554,17 +560,17 @@ def test_picking_a_hotel_uses_its_estimate_for_the_whole_trip(client, monkeypatc
     r = put_choice(client, trip_id, choice="hotel", place_id="p1")
 
     assert r.status_code == 200
-    assert r.json() == {
+    assert choice_of(r) == {
         "choice": "hotel",
         "skip_reason": None,
         "place_id": "p1",
-        "hotel": None,  # the page already shows it; not fetched again
+        "hotel": None,  # the overview makes no Google calls; the page already shows it
         "custom_name": None,
         "nightly_price": 140,
         "nights": 4,
         "total": 560,
         "fit": "fits",
-        "nights_exceed_trip": False,
+        "nights_exceed_stay": False,
     }
     [(_, amount, source, description)] = lodging_lines(trip_id)
     assert (amount, source, description) == (560, "user", "Lodging")
@@ -582,7 +588,7 @@ def test_picking_with_my_own_price_and_nights(client, monkeypatch):
 
     r = put_choice(client, trip_id, choice="hotel", place_id="p2", nightly_price=275.555, nights=2)
 
-    assert (r.json()["nightly_price"], r.json()["nights"], r.json()["total"]) == (275.56, 2, 551.12)
+    assert (choice_of(r)["nightly_price"], choice_of(r)["nights"], choice_of(r)["total"]) == (275.56, 2, 551.12)
     assert [line[1] for line in lodging_lines(trip_id)] == [551.12]
 
 
@@ -631,7 +637,7 @@ def test_a_hotel_without_an_estimate_needs_a_price(client, monkeypatch):
     assert r.status_code == 422
     assert r.json()["detail"] == "This hotel has no price estimate. Enter a nightly price."
 
-    assert put_choice(client, trip_id, choice="hotel", place_id="p1", nightly_price=99).json()["total"] == 396
+    assert choice_of(put_choice(client, trip_id, choice="hotel", place_id="p1", nightly_price=99))["total"] == 396
 
 
 def test_adding_my_own_hotel(client, monkeypatch):
@@ -641,12 +647,8 @@ def test_adding_my_own_hotel(client, monkeypatch):
     r = put_choice(client, trip_id, choice="own", name="  Lake House  ", nightly_price=80, nights=3)
 
     assert r.status_code == 200
-    assert (r.json()["choice"], r.json()["custom_name"], r.json()["place_id"], r.json()["total"]) == (
-        "own",
-        "Lake House",
-        None,
-        240,
-    )
+    own = choice_of(r)
+    assert (own["choice"], own["custom_name"], own["place_id"], own["total"]) == ("own", "Lake House", None, 240)
     assert [line[1:] for line in lodging_lines(trip_id)] == [(240, "user", "Lodging")]
     assert stored_choice(trip_id).latitude is None  # no place ID, so no map pin
 
@@ -658,7 +660,8 @@ def test_skipping_stores_the_reason_and_no_cost_line(client):
     r = put_choice(client, trip_id, choice="skip", reason="have_place")
 
     assert r.status_code == 200
-    assert (r.json()["choice"], r.json()["skip_reason"], r.json()["total"]) == ("skip", "have_place", None)
+    skip = choice_of(r)
+    assert (skip["choice"], skip["skip_reason"], skip["total"]) == ("skip", "have_place", None)
     assert lodging_lines(trip_id) == []
 
 
@@ -693,12 +696,13 @@ def test_removing_the_choice_removes_its_line_only(client, monkeypatch):
     client.post(f"/api/trips/{trip_id}/cost-items", json={"category": "lodging", "amount": 50, "description": "Hostel"})
     put_choice(client, trip_id, choice="hotel", place_id="p1")
 
-    r = client.delete(f"/api/trips/{trip_id}/lodging")
+    r = client.delete(f"/api/trips/{trip_id}/lodging/stays/1")
 
-    assert r.status_code == 204
+    assert r.status_code == 200
+    assert choice_of(r) is None  # answers with the overview
     assert stored_choice(trip_id) is None
     assert [line[1:] for line in lodging_lines(trip_id)] == [(50, "user", "Hostel")]
-    assert client.delete(f"/api/trips/{trip_id}/lodging").status_code == 204  # nothing left: still fine
+    assert client.delete(f"/api/trips/{trip_id}/lodging/stays/1").status_code == 200  # nothing left: still fine
 
 
 def test_regenerating_the_plan_keeps_the_lodging_line(client, monkeypatch):
@@ -723,18 +727,19 @@ def test_the_stay_has_its_own_fit_from_its_saved_price_and_nights(client, monkey
     suggest(client, monkeypatch, trip_id)
 
     # The stay's own total, not the suggestion's (which is the estimate x the whole trip).
-    assert put_choice(client, trip_id, choice="hotel", place_id="p1", nights=3).json()["fit"] == "fits"  # 420
-    assert put_choice(client, trip_id, choice="hotel", place_id="p1").json()["fit"] == "slightly_over"  # 560
-    assert put_choice(client, trip_id, choice="own", name="Inn", nightly_price=200, nights=3).json()["fit"] == "over"
-    assert get_lodging(client, trip_id)["choice"]["fit"] == "over"  # GET agrees with PUT
-    assert put_choice(client, trip_id, choice="skip", reason="have_place").json()["fit"] is None
+    assert choice_of(put_choice(client, trip_id, choice="hotel", place_id="p1", nights=3))["fit"] == "fits"  # 420
+    assert choice_of(put_choice(client, trip_id, choice="hotel", place_id="p1"))["fit"] == "slightly_over"  # 560
+    own = put_choice(client, trip_id, choice="own", name="Inn", nightly_price=200, nights=3)
+    assert choice_of(own)["fit"] == "over"
+    assert get_lodging(client, trip_id)["stay"]["choice"]["fit"] == "over"  # GET agrees with PUT
+    assert choice_of(put_choice(client, trip_id, choice="skip", reason="have_place"))["fit"] is None
 
 
 def test_without_a_budget_the_stay_has_no_fit(client):
     register(client)
     trip_id = create_trip(client, budget=None)
 
-    assert put_choice(client, trip_id, choice="own", name="Inn", nightly_price=80, nights=2).json()["fit"] is None
+    assert choice_of(put_choice(client, trip_id, choice="own", name="Inn", nightly_price=80, nights=2))["fit"] is None
 
 
 def test_the_choice_shows_in_the_budget(client, monkeypatch):
@@ -810,11 +815,18 @@ def test_invalid_choices_are_422_with_clear_messages(client):
     assert stored_choice(trip_id) is None
 
 
-# --- Map pin and the 30-day rule ------------------------------------------
-def get_pin(client, trip_id: int):
-    r = client.get(f"/api/trips/{trip_id}/lodging/pin")
+# --- Map pins and the 30-day rule -----------------------------------------
+def get_pins(client, trip_id: int) -> list[dict]:
+    r = client.get(f"/api/trips/{trip_id}/lodging/pins")
     assert r.status_code == 200, r.text
     return r.json()
+
+
+def get_pin(client, trip_id: int) -> dict | None:
+    """A one-stay trip's pin as {latitude, longitude}, or None."""
+    pins = get_pins(client, trip_id)
+    assert len(pins) <= 1
+    return {"latitude": pins[0]["latitude"], "longitude": pins[0]["longitude"]} if pins else None
 
 
 def age_coords(trip_id: int, days: int) -> None:
@@ -829,14 +841,14 @@ def age_coords(trip_id: int, days: int) -> None:
 
 
 def test_pin_requires_login_and_ownership(client):
-    assert client.get("/api/trips/1/lodging/pin").status_code == 401
+    assert client.get("/api/trips/1/lodging/pins").status_code == 401
 
     register(client)
     trip_id = create_trip(client)
     client.post("/api/auth/logout")
     register(client, email="second@example.com")
 
-    assert client.get(f"/api/trips/{trip_id}/lodging/pin").status_code == 404
+    assert client.get(f"/api/trips/{trip_id}/lodging/pins").status_code == 404
 
 
 def test_a_picked_hotel_has_a_pin_without_another_lookup(client, monkeypatch):
