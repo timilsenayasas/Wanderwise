@@ -111,20 +111,19 @@ export default function StaySection({ trip, stay, lodgingLeft, oneStay, open, on
     [trip.id, stay.number, announce],
   );
 
-  // Search the first time the section opens; after that only Refresh searches again.
-  const searched = useRef(false);
+  // Search once the section has been opened; closing and reopening it doesn't search again (only Refresh does).
+  const [opened, setOpened] = useState(open);
+  if (open && !opened) setOpened(true);
   useEffect(() => {
-    if (!open || searched.current) return;
-    searched.current = true;
+    if (!opened) return undefined;
     load();
-  }, [open, load]);
-
-  useEffect(
-    () => () => {
+    // The search and its cancelling live in one effect: StrictMode (development) runs effects,
+    // cleans them up and runs them again, so a cancelled first search is simply sent again.
+    // (A separate "searched once" flag kept it from being re-sent, so the cards loaded forever.)
+    return () => {
       latestRequest.current++; // ignore a response that arrives after the tab is gone
-    },
-    [],
-  );
+    };
+  }, [opened, load]);
 
   // Move focus once the element exists, so keyboard and screen reader users follow the change.
   useEffect(() => {

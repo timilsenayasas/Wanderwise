@@ -1,3 +1,4 @@
+import { StrictMode } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -634,5 +635,43 @@ describe('Multi-city trips', () => {
     expect(screen.queryByRole('button', { expanded: false })).toBeNull();
     expect(screen.queryByRole('button', { expanded: true })).toBeNull();
     expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL', level: 2 })).toBeInTheDocument();
+  });
+});
+
+// main.jsx renders the app in StrictMode, which (in development) mounts, unmounts and mounts every
+// component again. A section must still show its hotels after that, and a one-stay trip too.
+describe('In StrictMode, like the app', () => {
+  it("shows the first stay's hotels on a multi-city trip, not loading cards forever", async () => {
+    const stays = [
+      stayOut({ number: 1, city: 'Kathmandu, Nepal', check_out: '2026-11-07', nights: 2 }),
+      stayOut({ number: 2, city: 'Chitwan, Nepal', check_in: '2026-11-07', nights: 2 }),
+    ];
+    const page = { trip_id: 7, currency: 'USD', lodging_budget_left: 1600, stay: stays[0], suggestions: [DRAKE, LUX], suggestions_status: 'ok', fit_note: null };
+    mockLodging(api, { overview: overviewOf(stays), pages: { 1: page } });
+
+    render(
+      <StrictMode>
+        <WhereToStay trip={STAY_TRIP} />
+      </StrictMode>,
+    );
+
+    expect(await screen.findByRole('article', { name: 'The Drake' })).toBeVisible();
+    // Done loading. (The unopened Chitwan section keeps its placeholders, hidden, until it's opened.)
+    const first = screen.getByRole('button', { name: /^Kathmandu, Nepal/ }).closest('section');
+    expect(within(first).queryByText(/finding hotels/i)).toBeNull();
+    expect(api.get.mock.calls.map(([path]) => path)).not.toContain('/trips/7/lodging/stays/2');
+  });
+
+  it("shows a one-stay trip's hotels", async () => {
+    const { overview, page } = lodgingPage();
+    mockLodging(api, { overview, pages: { 1: page } });
+
+    render(
+      <StrictMode>
+        <WhereToStay trip={STAY_TRIP} />
+      </StrictMode>,
+    );
+
+    expect(await screen.findByRole('article', { name: 'The Drake' })).toBeVisible();
   });
 });
