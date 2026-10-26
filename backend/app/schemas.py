@@ -426,6 +426,14 @@ class StayPageOut(BaseModel):
     fit_note: Literal["no_budget", "none_fit"] | None
 
 
+class HotelNameOut(BaseModel):
+    """A picked hotel's name from Google, fetched fresh for the Itinerary and never stored."""
+
+    stay_number: int
+    place_id: str
+    name: str
+
+
 class LodgingPinOut(BaseModel):
     """A stay's picked hotel on the Map tab."""
 

@@ -237,3 +237,30 @@ describe("The Itinerary's total", () => {
     expect(screen.queryByText(/plan only|plan \$/i)).toBeNull();
   });
 });
+
+describe('Hotel names', () => {
+  it("names a picked hotel when this visit has its name, with Google's attribution", () => {
+    const lodging = twoStays({ choice: hotelChoice('p1', 140, 2) }, { choice: ownChoice('Tiger Camp', 80, 2) });
+    render(<ItineraryView itinerary={PLAN} lodging={lodging} hotelNames={new Map([['p1', 'Hotel Thamel']])} />);
+
+    expect(day(1)).toHaveTextContent('Tonight: Hotel Thamel');
+    expect(day(3)).toHaveTextContent('Tonight: Tiger Camp');
+    expect(screen.getByText('Hotel names: Google Maps')).toBeInTheDocument();
+  });
+
+  it('says "your hotel in …" and no attribution without the name', () => {
+    const lodging = twoStays({ choice: hotelChoice('p1', 140, 2) }, { choice: ownChoice('Tiger Camp', 80, 2) });
+    render(<ItineraryView itinerary={PLAN} lodging={lodging} hotelNames={new Map([['other', 'Elsewhere Inn']])} />);
+
+    expect(day(1)).toHaveTextContent(`Tonight: your hotel in ${KATHMANDU}`);
+    expect(screen.queryByText('Hotel names: Google Maps')).toBeNull(); // your own hotel's name is yours
+  });
+
+  it("doesn't name a hotel chosen for a city the plan has since changed", () => {
+    const moved = { choice: hotelChoice('p1', 140, 2), plan_changed: true, choice_city: 'Pokhara, Nepal' };
+    render(<ItineraryView itinerary={PLAN} lodging={twoStays(moved)} hotelNames={new Map([['p1', 'Hotel Thamel']])} />);
+
+    expect(day(1)).not.toHaveTextContent('Hotel Thamel');
+    expect(screen.queryByText('Hotel names: Google Maps')).toBeNull();
+  });
+});

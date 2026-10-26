@@ -14,6 +14,7 @@ stay: the trip budget minus every cost line except lodging, minus the other stay
 stay's own choice doesn't count against itself, and with one stay this is the whole lodging budget.
 """
 
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
@@ -38,6 +39,7 @@ from app.models import (
 from app.schemas import (
     EarlierChoiceOut,
     HotelChoiceIn,
+    HotelNameOut,
     HotelOut,
     HotelPhotoOut,
     HotelSuggestionOut,
@@ -600,3 +602,28 @@ def stay_page(trip: Trip, stay_number: int, db: Session, fresh: bool = False) ->
         suggestions_status=search.status,
         fit_note=fit_note,
     )
+
+
+def hotel_names(trip: Trip, stay_numbers: list[int], db: Session) -> list[HotelNameOut]:
+    """Fresh names of the hotels picked for these stays (Itinerary), one name-only lookup each, in parallel.
+
+    Only stays the current plan has, with a picked hotel; at most MAX_STAYS lookups. Never stored:
+    the browser keeps them for the page visit. A lookup that fails is just left out.
+    """
+    rows = choice_rows(trip, db)
+    wanted = sorted(set(stay_numbers))[:MAX_STAYS]
+    stays = len(trip_stays(trip, db))
+    picked = [
+        rows[number]
+        for number in wanted
+        if 1 <= number <= stays and number in rows and rows[number].choice == LODGING_HOTEL and rows[number].place_id
+    ]
+    if not picked:
+        return []
+    with ThreadPoolExecutor(max_workers=len(picked)) as pool:
+        names = list(pool.map(lambda row: places.get_name(row.place_id), picked))
+    return [
+        HotelNameOut(stay_number=row.stay_number, place_id=row.place_id, name=name)
+        for row, name in zip(picked, names)
+        if name
+    ]

@@ -64,7 +64,17 @@ export function SuggestionSkeletons({ count = SKELETON_COUNT, destination }) {
   );
 }
 
-export default function StaySection({ trip, stay, lodgingLeft, oneStay, open, onToggle, onOverview, announce }) {
+export default function StaySection({
+  trip,
+  stay,
+  lodgingLeft,
+  oneStay,
+  open,
+  onToggle,
+  onOverview,
+  onHotelNames,
+  announce,
+}) {
   const reducedMotion = usePrefersReducedMotion();
   const ids = stayIds(stay.number);
   const level = oneStay ? 3 : 4; // under the tab's h2, or under this section's h3
@@ -95,6 +105,8 @@ export default function StaySection({ trip, stay, lodgingLeft, oneStay, open, on
         if (request !== latestRequest.current) return;
         setPage(data);
         setStatus('ready');
+        // Every hotel's name came with this search: the Itinerary can show them without asking Google.
+        onHotelNames?.([...data.suggestions, data.stay.choice?.hotel].filter(Boolean));
         if (fresh) announce('Suggestions refreshed.');
       } catch (err) {
         if (request !== latestRequest.current) return;
@@ -108,7 +120,7 @@ export default function StaySection({ trip, stay, lodgingLeft, oneStay, open, on
         if (fresh && request === latestRequest.current) setRefreshing(false);
       }
     },
-    [trip.id, stay.number, announce],
+    [trip.id, stay.number, announce, onHotelNames],
   );
 
   // Search once the section has been opened; closing and reopening it doesn't search again (only Refresh does).

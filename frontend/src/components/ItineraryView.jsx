@@ -51,7 +51,13 @@ function breakdownText({ plan, lodging, other }) {
   return parts.join(' + ');
 }
 
-export default function ItineraryView({ itinerary, budget, lodging, onShowStay, onSetNight }) {
+export default function ItineraryView({ itinerary, budget, lodging, hotelNames, onShowStay, onSetNight }) {
+  // Google requires attribution for Places content (here, hotel names) shown outside its map.
+  const showsGoogleNames = Boolean(
+    lodging?.stays.some(
+      (stay) => stay.choice?.choice === 'hotel' && !stay.plan_changed && hotelNames?.has(stay.choice.place_id),
+    ),
+  );
   const { destination, currency, total_estimated_cost: total, days } = itinerary;
   const firstDate = days[0]?.date;
   const lastDate = days.at(-1)?.date;
@@ -119,13 +125,20 @@ export default function ItineraryView({ itinerary, budget, lodging, onShowStay, 
                   ))}
                 </ol>
                 {(night || tonight) && (
-                  <Tonight night={night} stay={tonight} onShowStay={onShowStay} onSetNight={onSetNight} />
+                  <Tonight
+                    night={night}
+                    stay={tonight}
+                    hotelNames={hotelNames}
+                    onShowStay={onShowStay}
+                    onSetNight={onSetNight}
+                  />
                 )}
               </Card>
             </li>
           );
         })}
       </ol>
+      {showsGoogleNames && <p className="itinerary__note text-muted">Hotel names: Google Maps</p>}
       <p className="itinerary__note text-muted">Costs and times are AI estimates, not quotes. Check before you book.</p>
     </div>
   );
@@ -135,11 +148,11 @@ export default function ItineraryView({ itinerary, budget, lodging, onShowStay, 
  * "Tonight: your hotel in Chitwan", "Tonight: in transit", or a way to settle it on the Stay tab,
  * plus the traveler's switch for the night, in case the plan got it wrong.
  */
-function Tonight({ night, stay, onShowStay, onSetNight }) {
+function Tonight({ night, stay, hotelNames, onShowStay, onSetNight }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const inTransit = Boolean(night?.in_transit);
-  const text = !inTransit && stay ? tonightText(stay) : null;
+  const text = !inTransit && stay ? tonightText(stay, hotelNames) : null;
 
   async function setNight(value) {
     setSaving(true);

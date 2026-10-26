@@ -87,14 +87,14 @@ export function dayLodging(lodging, date, firstDate, lastDate) {
 }
 
 /**
- * Where the traveler sleeps, for the Itinerary: "your hotel in Chitwan" (Google's names cost a lookup
- * on every visit, so they aren't shown), their own hotel's name, or what they told us.
- * null when there's nothing settled to show: no choice yet, or one made for a different city.
+ * Where the traveler sleeps, for the Itinerary: a picked hotel's Google name when this visit has it
+ * (`names`: place_id -> name, kept in memory only), else "your hotel in Chitwan"; their own hotel's
+ * name; or what they told us. null when there's nothing settled: no choice yet, or one for another city.
  */
-export function tonightText(stay) {
+export function tonightText(stay, names) {
   const { choice, city } = stay;
   if (!choice || stay.plan_changed) return null;
-  if (choice.choice === 'hotel') return `your hotel in ${city}`;
+  if (choice.choice === 'hotel') return names?.get(choice.place_id) ?? `your hotel in ${city}`;
   if (choice.choice === 'own') return choice.custom_name;
   return choice.skip_reason === 'have_place' ? `your own place in ${city}` : 'no hotel needed';
 }

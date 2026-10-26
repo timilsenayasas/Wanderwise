@@ -6,6 +6,7 @@ exactly which base city every day has.
 
 from datetime import date, timedelta
 
+import httpx
 from conftest import register
 from sqlalchemy import delete, select
 from test_lodging import (
@@ -24,7 +25,7 @@ from test_places import fake_places, place
 from test_plan import FIRST_PLAN, use_fake_gemini
 
 from app.config import settings
-from app.database import get_db
+from app.database import Base, get_db
 from app.main import app
 from app.models import LODGING_HOTEL, TripDay, TripLodging, TripNightOverride
 
@@ -465,3 +466,82 @@ def test_deleting_a_trip_removes_its_night_switches(client):
         assert db.scalars(select(TripNightOverride)).all() == []
     finally:
         db.close()
+
+
+# --- Hotel names for the Itinerary ----------------------------------------
+def get_names(client, trip_id: int, *stays: int):
+    query = "&".join(f"stays={n}" for n in stays)
+    return client.get(f"/api/trips/{trip_id}/lodging/names?{query}")
+
+
+def test_names_of_picked_hotels_are_looked_up_name_only(client, monkeypatch):
+    trip_id = two_city_trip(client)
+    open_stay(client, monkeypatch, trip_id, 1, [DRAKE], p1=140)
+    put_choice(client, trip_id, stay=1, choice="hotel", place_id="p1")
+    open_stay(client, monkeypatch, trip_id, 2, [TIGER], t1=90)
+    put_choice(client, trip_id, stay=2, choice="hotel", place_id="t1")
+    sent = fake_places(
+        monkeypatch,
+        details={"p1": {"displayName": {"text": "The Drake"}}, "t1": {"displayName": {"text": "Tiger Lodge"}}},
+    )
+
+    r = get_names(client, trip_id, 1, 2)
+
+    assert r.status_code == 200
+    assert sorted(r.json(), key=lambda n: n["stay_number"]) == [
+        {"stay_number": 1, "place_id": "p1", "name": "The Drake"},
+        {"stay_number": 2, "place_id": "t1", "name": "Tiger Lodge"},
+    ]
+    assert [request["field_mask"] for request in sent] == ["displayName", "displayName"]
+
+
+def test_only_the_asked_for_picked_hotels_are_looked_up(client, monkeypatch):
+    trip_id = two_city_trip(client)
+    open_stay(client, monkeypatch, trip_id, 1, [DRAKE], p1=140)
+    put_choice(client, trip_id, stay=1, choice="hotel", place_id="p1")
+    put_choice(client, trip_id, stay=2, choice="own", name="Tiger Camp", nightly_price=80, nights=2)
+    sent = fake_places(monkeypatch, details={"p1": {"displayName": {"text": "The Drake"}}})
+
+    assert get_names(client, trip_id, 2, 3, 9).json() == []  # own hotel, no such stays
+    assert get_names(client, trip_id).json() == []  # nothing asked for
+    assert sent == []  # no Google call for any of that
+    assert [n["name"] for n in get_names(client, trip_id, 1, 1).json()] == ["The Drake"]  # once, though asked twice
+    assert len(sent) == 1
+
+
+def test_a_failed_name_lookup_is_left_out(client, monkeypatch):
+    trip_id = two_city_trip(client)
+    open_stay(client, monkeypatch, trip_id, 1, [DRAKE], p1=140)
+    put_choice(client, trip_id, stay=1, choice="hotel", place_id="p1")
+    fake_places(monkeypatch, details={"p1": httpx.ConnectError("down")})
+
+    r = get_names(client, trip_id, 1)
+
+    assert (r.status_code, r.json()) == (200, [])
+
+
+def test_names_are_never_stored(client, monkeypatch):
+    trip_id = two_city_trip(client)
+    open_stay(client, monkeypatch, trip_id, 1, [DRAKE], p1=140)
+    put_choice(client, trip_id, stay=1, choice="hotel", place_id="p1")
+    fake_places(monkeypatch, details={"p1": {"displayName": {"text": "A Very Unusual Hotel Name"}}})
+
+    get_names(client, trip_id, 1)
+
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        everything = repr([db.execute(table.select()).all() for table in Base.metadata.sorted_tables])
+    finally:
+        db.close()
+    assert "A Very Unusual Hotel Name" not in everything
+
+
+def test_names_need_login_the_owner_and_whole_numbers(client):
+    assert client.get("/api/trips/1/lodging/names?stays=1").status_code == 401
+
+    trip_id = two_city_trip(client)
+    assert get_names(client, trip_id, "one").status_code == 422
+    client.post("/api/auth/logout")
+    register(client, email="second@example.com")
+
+    assert get_names(client, trip_id, 1).status_code == 404

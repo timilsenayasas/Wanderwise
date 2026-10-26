@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
 import Itinerary from '../pages/Itinerary';
 import { budgetResponse, emptyBudget, HOTEL } from './budgetFixtures';
-import { lodgingPage, nightsOf } from './lodgingFixtures';
+import { DRAKE, hotelChoice, lodgingPage, nightsOf } from './lodgingFixtures';
 import { googleMaps, resetGoogleMaps } from './mockGoogleMaps';
 
 vi.mock('@vis.gl/react-google-maps', () => import('./mockGoogleMaps'));
@@ -67,18 +67,37 @@ function locatedPlan() {
 
 /**
  * GET /trips/7 returns TRIP; /plan `plan` (null = none saved yet); /budget a budget;
- * /lodging and /lodging/stays/1 a one-stay `lodging` scenario; /lodging/pins `pins`.
+ * /lodging and /lodging/stays/1 a one-stay `lodging` scenario; /lodging/pins `pins`;
+ * /lodging/names?… `names`.
  */
-function mockLoad(plan, trip = TRIP, budget = budgetResponse(), lodging = lodgingPage({ nights: 1 }), pins = []) {
+function mockLoad(
+  plan,
+  trip = TRIP,
+  budget = budgetResponse(),
+  lodging = lodgingPage({ nights: 1 }),
+  pins = [],
+  names = [],
+) {
   api.get.mockImplementation((path) => {
     if (path.endsWith('/plan')) return Promise.resolve(plan);
     if (path.endsWith('/budget')) return Promise.resolve(budget);
     if (path.endsWith('/lodging')) return Promise.resolve(lodging.overview);
     if (path.endsWith('/lodging/stays/1')) return Promise.resolve(lodging.page);
     if (path.endsWith('/lodging/pins')) return Promise.resolve(pins);
+    if (path.includes('/lodging/names?')) return Promise.resolve(names);
     return Promise.resolve(trip);
   });
 }
+
+/** A two-day plan (Nov 5 – 6: one night) and a one-stay trip whose hotel p1 (The Drake) is picked. */
+function pickedHotelTrip() {
+  const plan = savedPlan('Art Institute of Chicago');
+  plan.days.push({ ...plan.days[0], id: 2, day_number: 2, date: '2026-11-06' });
+  const lodging = lodgingPage({ nights: 1, choice: hotelChoice('p1', 140, 1, { hotel: DRAKE }) });
+  return { plan, lodging };
+}
+
+const nameRequests = () => api.get.mock.calls.map(([path]) => path).filter((path) => path.includes('/lodging/names'));
 
 function LocationState() {
   const location = useLocation();
@@ -452,5 +471,90 @@ describe('Trip page tabs', () => {
 
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('null'));
     expect(screen.getByTestId('search')).toHaveTextContent('?tab=budget');
+  });
+});
+
+describe("Hotel names on the Itinerary", () => {
+  it("looks up a picked hotel's name, then says where you sleep by name", async () => {
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging, [], [{ stay_number: 1, place_id: 'p1', name: 'Hotel Thamel' }]);
+    renderTrip();
+
+    const label = await screen.findByText('Tonight:');
+    await waitFor(() => expect(label.closest('p')).toHaveTextContent('Tonight: Hotel Thamel'));
+    expect(nameRequests()).toEqual(['/trips/7/lodging/names?stays=1']);
+    expect(screen.getByText('Hotel names: Google Maps')).toBeInTheDocument(); // Google's attribution
+  });
+
+  it('reuses names the Stay tab already loaded: no lookup', async () => {
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging);
+    renderTrip(undefined, '?tab=stay');
+    await screen.findByRole('article', { name: 'The Drake' }); // the Stay tab's search brought the names
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+
+    const label = await screen.findByText('Tonight:');
+    expect(label.closest('p')).toHaveTextContent('Tonight: The Drake');
+    expect(nameRequests()).toEqual([]);
+  });
+
+  it('asks once per visit, not every time the Itinerary is shown', async () => {
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging, [], [{ stay_number: 1, place_id: 'p1', name: 'Hotel Thamel' }]);
+    renderTrip();
+    await screen.findByText('Hotel names: Google Maps');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Budget' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+    await screen.findByText('Hotel names: Google Maps');
+
+    expect(nameRequests()).toHaveLength(1);
+  });
+
+  it('keeps "your hotel in …" when the name lookup fails', async () => {
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging);
+    const loadNormally = api.get.getMockImplementation();
+    api.get.mockImplementation((path) =>
+      path.includes('/lodging/names') ? Promise.reject(new ApiError('Something went wrong.', 500)) : loadNormally(path),
+    );
+    renderTrip();
+
+    await waitFor(() => expect(nameRequests()).toHaveLength(1));
+    expect((await screen.findByText('Tonight:')).closest('p')).toHaveTextContent('Tonight: your hotel in Chicago, IL');
+    expect(screen.queryByText('Hotel names: Google Maps')).toBeNull();
+  });
+
+  it('never puts names in localStorage or sessionStorage', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging, [], [{ stay_number: 1, place_id: 'p1', name: 'Hotel Thamel' }]);
+    renderTrip();
+
+    await screen.findByText('Hotel names: Google Maps');
+
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it('asks again if you leave while a name is loading, and shows it when you come back', async () => {
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging);
+    const loadNormally = api.get.getMockImplementation();
+    let lookups = 0;
+    api.get.mockImplementation((path) => {
+      if (!path.includes('/lodging/names')) return loadNormally(path);
+      lookups += 1;
+      // The first lookup never answers (you've left before it would); the second one does.
+      return lookups === 1 ? new Promise(() => {}) : Promise.resolve([{ stay_number: 1, place_id: 'p1', name: 'Hotel Thamel' }]);
+    });
+    renderTrip();
+    await waitFor(() => expect(nameRequests()).toHaveLength(1));
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Budget' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+
+    expect(await screen.findByText('Hotel names: Google Maps')).toBeInTheDocument();
+    expect(nameRequests()).toHaveLength(2);
   });
 });

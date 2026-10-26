@@ -6,8 +6,9 @@ opened or Refresh is pressed.
 """
 
 from datetime import date
+from typing import Annotated
 
-from fastapi import APIRouter, HTTPException, status
+from fastapi import APIRouter, HTTPException, Query, status
 
 from app.database import DbSession
 from app.lodging import (
@@ -16,6 +17,7 @@ from app.lodging import (
     NightNotFound,
     StayNotFound,
     clear_stale_coords,
+    hotel_names,
     hotel_pins,
     lodging_overview,
     remove_choice,
@@ -25,7 +27,14 @@ from app.lodging import (
 )
 from app.models import Trip
 from app.routers.trips import get_own_trip
-from app.schemas import LodgingChoiceIn, LodgingOverviewOut, LodgingPinOut, NightIn, StayPageOut
+from app.schemas import (
+    HotelNameOut,
+    LodgingChoiceIn,
+    LodgingOverviewOut,
+    LodgingPinOut,
+    NightIn,
+    StayPageOut,
+)
 from app.security import CurrentUser
 
 router = APIRouter(prefix="/api/trips", tags=["where to stay"])
@@ -99,6 +108,18 @@ def get_lodging_pins(trip_id: int, user: CurrentUser, db: DbSession) -> list[Lod
     pins = hotel_pins(trip, db)
     db.commit()  # refreshed or cleared coordinates
     return pins
+
+
+@router.get("/{trip_id}/lodging/names", response_model=list[HotelNameOut])
+def get_hotel_names(
+    trip_id: int, user: CurrentUser, db: DbSession, stays: Annotated[list[int], Query()] = []
+) -> list[HotelNameOut]:
+    """Fresh Google names of the hotels picked for these stays (?stays=1&stays=3), for the Itinerary.
+
+    One name-only Place Details lookup (Pro tier) per stay, never stored. The page asks only for
+    names it doesn't have yet (the Stay tab's hotels already come with theirs).
+    """
+    return hotel_names(get_own_trip(trip_id, user, db), stays, db)
 
 
 # --- Nights in transit ----------------------------------------------------

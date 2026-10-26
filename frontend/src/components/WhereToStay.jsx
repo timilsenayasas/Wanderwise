@@ -15,7 +15,7 @@ import './WhereToStay.css';
 
 const TITLE_ID = 'stay-title';
 
-export default function WhereToStay({ trip, nightsVersion = 0 }) {
+export default function WhereToStay({ trip, nightsVersion = 0, onHotelNames }) {
   const [overview, setOverview] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [loadError, setLoadError] = useState('');
@@ -121,6 +121,7 @@ export default function WhereToStay({ trip, nightsVersion = 0 }) {
           open={oneStay || opened.has(stay.number)}
           onToggle={() => toggle(stay.number)}
           onOverview={setOverview}
+          onHotelNames={onHotelNames}
           announce={announce}
         />
       ))}
