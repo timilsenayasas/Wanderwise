@@ -65,12 +65,16 @@ function locatedPlan() {
   return plan;
 }
 
-/** GET /trips/7 returns TRIP; /plan `plan` (null = none saved yet); /budget a budget; /lodging hotels; /lodging/pin `pin`. */
+/**
+ * GET /trips/7 returns TRIP; /plan `plan` (null = none saved yet); /budget a budget;
+ * /lodging and /lodging/stays/1 a one-stay `lodging` scenario; /lodging/pin `pin`.
+ */
 function mockLoad(plan, trip = TRIP, budget = budgetResponse(), lodging = lodgingPage({ nights: 1 }), pin = null) {
   api.get.mockImplementation((path) => {
     if (path.endsWith('/plan')) return Promise.resolve(plan);
     if (path.endsWith('/budget')) return Promise.resolve(budget);
-    if (path.endsWith('/lodging')) return Promise.resolve(lodging);
+    if (path.endsWith('/lodging')) return Promise.resolve(lodging.overview);
+    if (path.endsWith('/lodging/stays/1')) return Promise.resolve(lodging.page);
     if (path.endsWith('/lodging/pin')) return Promise.resolve(pin);
     return Promise.resolve(trip);
   });
@@ -312,7 +316,9 @@ describe('Trip page tabs', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Stay' }));
 
     expect(screen.getByRole('article', { name: 'The Drake' })).toBeVisible();
+    // One overview and one (billed) search, however often the tab is reopened.
     expect(api.get.mock.calls.filter(([path]) => path === '/trips/7/lodging')).toHaveLength(1);
+    expect(api.get.mock.calls.filter(([path]) => path === '/trips/7/lodging/stays/1')).toHaveLength(1);
   });
 
   it("the Budget tab's Stay line leads to the Stay tab", async () => {

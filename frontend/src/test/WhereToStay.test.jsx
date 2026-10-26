@@ -8,9 +8,13 @@ import {
   hotelChoice,
   lodgingPage,
   LUX,
+  mockLodging,
+  overviewOf,
+  overviewWith,
   ownChoice,
   skipChoice,
   STAY_TRIP,
+  stayOut,
   suggestion,
 } from './lodgingFixtures';
 
@@ -19,9 +23,9 @@ vi.mock('../api/client', async (importOriginal) => {
   return { ...actual, api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } };
 });
 
-/** Open the tab with this GET answer and wait for the suggestions (or their fallback). */
-async function openWith(page = lodgingPage()) {
-  api.get.mockResolvedValue(page);
+/** Open a one-stay trip's tab with this scenario and wait for the suggestions (or their fallback). */
+async function openWith({ overview, page } = lodgingPage()) {
+  mockLodging(api, { overview, pages: { 1: page } });
   render(<WhereToStay trip={STAY_TRIP} />);
   await screen.findByRole('heading', { name: 'Suggested hotels' });
   await waitFor(() => expect(screen.queryByText(/finding hotels/i)).not.toBeInTheDocument());
@@ -59,21 +63,23 @@ afterEach(() => {
 
 describe('Where to stay loading', () => {
   it('shows skeleton cards, then the suggestions from one search', async () => {
-    api.get.mockResolvedValue(lodgingPage());
+    const { overview, page } = lodgingPage();
+    mockLodging(api, { overview, pages: { 1: page } });
     render(<WhereToStay trip={STAY_TRIP} />);
 
     expect(screen.getByText(/finding hotels in chicago, il/i)).toHaveAttribute('role', 'status');
     expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL' })).toBeInTheDocument();
 
     expect(await screen.findByRole('article', { name: 'The Drake' })).toBeInTheDocument();
-    expect(api.get).toHaveBeenCalledTimes(1);
-    expect(api.get).toHaveBeenCalledWith('/trips/7/lodging');
+    // The overview (no Google calls), then one search for the trip's one stay.
+    expect(api.get.mock.calls.map(([path]) => path)).toEqual(['/trips/7/lodging', '/trips/7/lodging/stays/1']);
     expect(screen.getByText(/4 nights · \$1,600 left for lodging/)).toBeInTheDocument();
   });
 
   it('shows the error with a retry button when loading fails', async () => {
+    const { overview, page } = lodgingPage();
+    mockLodging(api, { overview, pages: { 1: page } });
     api.get.mockRejectedValueOnce(new ApiError("Can't reach the server. Check your connection and try again.", 0));
-    api.get.mockResolvedValueOnce(lodgingPage());
     render(<WhereToStay trip={STAY_TRIP} />);
 
     expect(await screen.findByRole('alert')).toHaveTextContent(/can't reach the server/i);
@@ -132,11 +138,11 @@ describe('Hotel cards', () => {
 describe('Choosing', () => {
   it('chooses a hotel, moves it into Your stay and announces it', async () => {
     await openWith();
-    api.put.mockResolvedValue(hotelChoice('p1', 140));
+    api.put.mockResolvedValue(overviewWith(hotelChoice('p1', 140)));
 
     await userEvent.click(within(card('The Drake')).getByRole('button', { name: 'Choose The Drake' }));
 
-    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging', { choice: 'hotel', place_id: 'p1' });
+    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging/stays/1', { choice: 'hotel', place_id: 'p1' });
     const stay = await screen.findByRole('region', { name: /your stay/i });
     expect(within(stay).getByRole('heading', { name: 'Your stay: The Drake' })).toBeInTheDocument();
     expect(within(stay).getByText('$560 total, 4 nights')).toBeInTheDocument();
@@ -148,7 +154,7 @@ describe('Choosing', () => {
 
   it('asks for a price before choosing a hotel without an estimate', async () => {
     await openWith(lodgingPage({ suggestions: [suggestion('p3', 'New Inn', null)] }));
-    api.put.mockResolvedValue(hotelChoice('p3', 99));
+    api.put.mockResolvedValue(overviewWith(hotelChoice('p3', 99)));
 
     await userEvent.click(screen.getByRole('button', { name: 'Choose New Inn' }));
     const price = screen.getByLabelText('Nightly price for New Inn (USD)');
@@ -161,7 +167,7 @@ describe('Choosing', () => {
     await userEvent.type(price, '99');
     await userEvent.click(within(card('New Inn')).getByRole('button', { name: 'Choose' }));
 
-    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging', { choice: 'hotel', place_id: 'p3', nightly_price: 99 });
+    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging/stays/1', { choice: 'hotel', place_id: 'p3', nightly_price: 99 });
     expect(await screen.findByRole('region', { name: /your stay/i })).toHaveTextContent('Your price');
   });
 
@@ -198,7 +204,7 @@ describe('The chosen hotel in Suggested hotels', () => {
 
   it('moves the chosen state when another hotel is chosen', async () => {
     await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
-    api.put.mockResolvedValue(hotelChoice('p2', 300));
+    api.put.mockResolvedValue(overviewWith(hotelChoice('p2', 300)));
 
     await userEvent.click(screen.getByRole('button', { name: 'Choose Hotel Lux' }));
 
@@ -208,7 +214,7 @@ describe('The chosen hotel in Suggested hotels', () => {
 
   it('keeps the chosen state after Refresh', async () => {
     await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
-    api.post.mockResolvedValue(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
+    api.post.mockResolvedValue(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }).page);
 
     await userEvent.click(screen.getByRole('button', { name: /refresh suggestions/i }));
 
@@ -244,7 +250,7 @@ describe('The chosen hotel in Suggested hotels', () => {
 
   it('goes back to Choose when the stay is removed', async () => {
     await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
-    api.delete.mockResolvedValue(null);
+    api.delete.mockResolvedValue(overviewWith(null));
 
     await userEvent.click(within(yourStay()).getByRole('button', { name: 'Remove' }));
     await userEvent.click(within(yourStay()).getAllByRole('button', { name: 'Remove' })[0]);
@@ -275,7 +281,7 @@ describe('Your stay price and fit', () => {
   it('says "Price when you chose it" once the estimate has changed', async () => {
     await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
     const repriced = { ...DRAKE, nightly_estimate: 150, stay_total: 600 };
-    api.post.mockResolvedValue(lodgingPage({ suggestions: [repriced, LUX], choice: hotelChoice('p1', 140, 4) }));
+    api.post.mockResolvedValue(lodgingPage({ suggestions: [repriced, LUX], choice: hotelChoice('p1', 140, 4) }).page);
 
     await userEvent.click(screen.getByRole('button', { name: /refresh suggestions/i }));
 
@@ -295,7 +301,7 @@ describe('Your stay price and fit', () => {
 describe('Your own hotel', () => {
   it('adds my own hotel with a live total, and checks the fields first', async () => {
     await openWith();
-    api.put.mockResolvedValue(ownChoice('Lake House', 80, 3));
+    api.put.mockResolvedValue(overviewWith(ownChoice('Lake House', 80, 3)));
     const add = screen.getByRole('button', { name: 'Add my own hotel' });
 
     await userEvent.click(add);
@@ -319,7 +325,7 @@ describe('Your own hotel', () => {
 
     await userEvent.click(screen.getByRole('button', { name: 'Save my hotel' }));
 
-    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging', {
+    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging/stays/1', {
       choice: 'own',
       name: 'Lake House',
       nightly_price: 80,
@@ -356,28 +362,28 @@ describe('Your own hotel', () => {
 describe('Skipping, changing and removing', () => {
   it('skips with one click and no confirm', async () => {
     await openWith();
-    api.put.mockResolvedValue(skipChoice('not_needed'));
+    api.put.mockResolvedValue(overviewWith(skipChoice('not_needed')));
 
     await userEvent.click(screen.getByRole('button', { name: 'No hotel needed' }));
 
-    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging', { choice: 'skip', reason: 'not_needed' });
+    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging/stays/1', { choice: 'skip', reason: 'not_needed' });
     expect(await screen.findByRole('region', { name: /your stay/i })).toHaveTextContent('No hotel needed');
     expect(screen.getByRole('button', { name: 'No hotel needed' })).toHaveAttribute('aria-pressed', 'true');
   });
 
   it('"I already have a place" saves that reason', async () => {
     await openWith();
-    api.put.mockResolvedValue(skipChoice('have_place'));
+    api.put.mockResolvedValue(overviewWith(skipChoice('have_place')));
 
     await userEvent.click(screen.getByRole('button', { name: 'I already have a place' }));
 
-    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging', { choice: 'skip', reason: 'have_place' });
+    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging/stays/1', { choice: 'skip', reason: 'have_place' });
     expect(await screen.findByRole('region', { name: /your stay/i })).toHaveTextContent('You already have a place');
   });
 
   it("Change edits a picked hotel's price and nights, then returns focus", async () => {
     await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
-    api.put.mockResolvedValue(hotelChoice('p1', 120, 2));
+    api.put.mockResolvedValue(overviewWith(hotelChoice('p1', 120, 2)));
 
     await userEvent.click(within(yourStay()).getByRole('button', { name: 'Change' }));
     expect(screen.queryByLabelText('Hotel name')).not.toBeInTheDocument(); // Google's name, not editable
@@ -391,7 +397,7 @@ describe('Skipping, changing and removing', () => {
     await userEvent.type(screen.getByLabelText('Nights'), '2');
     await userEvent.click(screen.getByRole('button', { name: 'Save changes' }));
 
-    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging', {
+    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging/stays/1', {
       choice: 'hotel',
       place_id: 'p1',
       nightly_price: 120,
@@ -404,7 +410,7 @@ describe('Skipping, changing and removing', () => {
 
   it('Remove asks first, starting on Cancel, then removes the stay', async () => {
     await openWith(lodgingPage({ choice: hotelChoice('p1', 140, 4, { hotel: DRAKE }) }));
-    api.delete.mockResolvedValue(null);
+    api.delete.mockResolvedValue(overviewWith(null));
 
     await userEvent.click(within(yourStay()).getByRole('button', { name: 'Remove' }));
     expect(yourStay()).toHaveTextContent('This also removes its $560 Lodging line from your budget.');
@@ -417,14 +423,14 @@ describe('Skipping, changing and removing', () => {
     await userEvent.click(within(yourStay()).getByRole('button', { name: 'Remove' }));
     await userEvent.click(within(yourStay()).getAllByRole('button', { name: 'Remove' })[0]);
 
-    expect(api.delete).toHaveBeenCalledWith('/trips/7/lodging');
+    expect(api.delete).toHaveBeenCalledWith('/trips/7/lodging/stays/1');
     await waitFor(() => expect(screen.queryByRole('region', { name: /your stay/i })).not.toBeInTheDocument());
     expect(screen.getByRole('heading', { name: 'Suggested hotels' })).toHaveFocus();
     expect(announced()).toMatch(/your stay was removed/i);
   });
 
   it('shows a hint when the trip got shorter than the stay', async () => {
-    await openWith(lodgingPage({ nights: 2, choice: { ...ownChoice('Lake House', 80, 4), nights_exceed_trip: true } }));
+    await openWith(lodgingPage({ nights: 2, choice: { ...ownChoice('Lake House', 80, 4), nights_exceed_stay: true } }));
 
     expect(yourStay()).toHaveTextContent('Your trip is now 2 nights, but your stay is set for 4.');
     await userEvent.click(within(yourStay()).getByRole('button', { name: 'Update' }));
@@ -436,14 +442,15 @@ describe('Skipping, changing and removing', () => {
 describe('Refresh and fallbacks', () => {
   it('Refresh searches again and shows the new estimates', async () => {
     await openWith();
-    api.post.mockResolvedValue(lodgingPage({ suggestions: [{ ...DRAKE, nightly_estimate: 150, stay_total: 600 }, LUX] }));
+    api.post.mockResolvedValue(lodgingPage({ suggestions: [{ ...DRAKE, nightly_estimate: 150, stay_total: 600 }, LUX] }).page);
 
     await userEvent.click(screen.getByRole('button', { name: /refresh suggestions/i }));
 
-    expect(api.post).toHaveBeenCalledWith('/trips/7/lodging/refresh');
+    expect(api.post).toHaveBeenCalledWith('/trips/7/lodging/stays/1/refresh');
     expect(await within(card('The Drake')).findByText('$150 / night')).toBeInTheDocument();
     expect(announced()).toMatch(/suggestions refreshed/i);
-    expect(api.get).toHaveBeenCalledTimes(1);
+    // Refresh is the POST; the stay's search GET still ran only once.
+    expect(api.get.mock.calls.filter(([path]) => path === '/trips/7/lodging/stays/1')).toHaveLength(1);
   });
 
   // Refresh only when the search itself worked: a retry may find hotels, but can't fix a missing key.
@@ -480,7 +487,7 @@ describe('Motion', () => {
   it('scrolls smoothly to Your stay after choosing', async () => {
     useReducedMotion(false);
     await openWith();
-    api.put.mockResolvedValue(hotelChoice('p1', 140));
+    api.put.mockResolvedValue(overviewWith(hotelChoice('p1', 140)));
 
     await userEvent.click(screen.getByRole('button', { name: 'Choose The Drake' }));
 
@@ -492,12 +499,140 @@ describe('Motion', () => {
   it('jumps without animation when reduced motion is on', async () => {
     useReducedMotion(true);
     await openWith();
-    api.put.mockResolvedValue(hotelChoice('p1', 140));
+    api.put.mockResolvedValue(overviewWith(hotelChoice('p1', 140)));
 
     await userEvent.click(screen.getByRole('button', { name: 'Choose The Drake' }));
 
     await waitFor(() =>
       expect(Element.prototype.scrollIntoView).toHaveBeenCalledWith({ behavior: 'auto', block: 'start' }),
     );
+  });
+});
+
+describe('Multi-city trips', () => {
+  const KATHMANDU = 'Kathmandu, Nepal';
+  const CHITWAN = 'Chitwan, Nepal';
+  const TIGER = suggestion('t1', 'Tiger Lodge', 90, { area: 'Sauraha' });
+
+  function twoStays({ first = {}, second = {}, earlier = [], left = 1600 } = {}) {
+    const stays = [
+      stayOut({ number: 1, city: KATHMANDU, check_out: '2026-11-07', nights: 2, budget_left: left, ...first }),
+      stayOut({ number: 2, city: CHITWAN, check_in: '2026-11-07', nights: 2, budget_left: left, ...second }),
+    ];
+    const page = (stay, suggestions) => ({
+      trip_id: 7,
+      currency: 'USD',
+      lodging_budget_left: left,
+      stay,
+      suggestions,
+      suggestions_status: 'ok',
+      fit_note: null,
+    });
+    return {
+      overview: overviewOf(stays, { lodging_budget_left: left, earlier_choices: earlier }),
+      pages: { 1: page(stays[0], [{ ...DRAKE, stay_total: 280 }]), 2: page(stays[1], [{ ...TIGER, stay_total: 180 }]) },
+    };
+  }
+
+  async function openTrip(scenario = twoStays()) {
+    mockLodging(api, scenario);
+    render(<WhereToStay trip={STAY_TRIP} />);
+    await screen.findByRole('heading', { name: 'Where to stay', level: 2 });
+  }
+
+  const section = (city) => screen.getByRole('button', { name: new RegExp(`^${city}`) });
+  const searches = () => api.get.mock.calls.map(([path]) => path).filter((path) => path.includes('/stays/'));
+
+  it('lists each stay as a section and searches only the first one', async () => {
+    await openTrip();
+
+    expect(screen.getByText('Your trip has 2 stays.', { exact: false })).toBeInTheDocument();
+    expect(section(KATHMANDU)).toHaveAttribute('aria-expanded', 'true');
+    expect(section(KATHMANDU)).toHaveAccessibleName(/Nov 5 – Nov 7, 2026 · 2 nights: Not chosen yet/);
+    expect(section(CHITWAN)).toHaveAttribute('aria-expanded', 'false');
+    expect(await screen.findByRole('article', { name: 'The Drake' })).toBeVisible();
+    expect(screen.queryByRole('article', { name: 'Tiger Lodge' })).toBeNull();
+    expect(searches()).toEqual(['/trips/7/lodging/stays/1']);
+  });
+
+  it("opens another stay's section on demand, searching its city once", async () => {
+    await openTrip();
+
+    await userEvent.click(section(CHITWAN));
+    expect(section(CHITWAN)).toHaveAttribute('aria-expanded', 'true');
+    expect(await screen.findByRole('article', { name: 'Tiger Lodge' })).toBeVisible();
+
+    await userEvent.click(section(CHITWAN)); // close: kept, just hidden
+    expect(screen.getByRole('article', { name: 'Tiger Lodge', hidden: true })).not.toBeVisible();
+    await userEvent.click(section(CHITWAN)); // and open again
+
+    expect(screen.getByRole('article', { name: 'Tiger Lodge' })).toBeVisible();
+    expect(searches()).toEqual(['/trips/7/lodging/stays/1', '/trips/7/lodging/stays/2']);
+  });
+
+  it("choosing for one stay updates its pill and re-judges the other stay's hotels", async () => {
+    await openTrip();
+    await userEvent.click(section(CHITWAN));
+    await screen.findByRole('article', { name: 'Tiger Lodge' });
+    expect(within(card('The Drake')).getByText('Fits budget')).toBeInTheDocument();
+    // After the pick, only $100 is left for Kathmandu.
+    const after = twoStays({ second: { choice: hotelChoice('t1', 90, 2) }, first: { budget_left: 100 } }).overview;
+    api.put.mockResolvedValue(after);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Choose Tiger Lodge' }));
+
+    expect(api.put).toHaveBeenCalledWith('/trips/7/lodging/stays/2', { choice: 'hotel', place_id: 't1' });
+    await waitFor(() => expect(section(CHITWAN)).toHaveAccessibleName(/Hotel chosen · \$180$/));
+    expect(within(card('The Drake')).getByText('Over budget')).toBeInTheDocument(); // $280 of $100, no new search
+    expect(screen.getByText('None of these fit the $100 left for lodging.')).toBeInTheDocument();
+    expect(announced()).toMatch(/tiger lodge is now your stay in chitwan, nepal/i);
+    expect(searches()).toHaveLength(2);
+  });
+
+  it('checks nights against the stay, not the whole trip', async () => {
+    await openTrip();
+    await screen.findByRole('article', { name: 'The Drake' });
+
+    await userEvent.click(within(section(KATHMANDU).closest('section')).getByRole('button', { name: 'Add my own hotel' }));
+
+    expect(screen.getByLabelText('Nights')).toHaveValue(2);
+    await userEvent.clear(screen.getByLabelText('Nights'));
+    await userEvent.type(screen.getByLabelText('Nights'), '3');
+    await userEvent.click(screen.getByRole('button', { name: 'Save my hotel' }));
+    expect(screen.getByText('Nights must be between 1 and 2, the length of this stay.')).toBeInTheDocument();
+  });
+
+  it('points out a choice made for a different city by an earlier plan', async () => {
+    const own = ownChoice('Tiger Camp', 80, 2);
+    await openTrip(twoStays({ first: { choice: own, plan_changed: true, choice_city: 'Pokhara, Nepal' } }));
+
+    expect(section(KATHMANDU)).toHaveAccessibleName(/Check your choice$/);
+    expect(
+      await screen.findByText(/Your plan changed: this choice was made for Pokhara, Nepal/),
+    ).toBeInTheDocument();
+    expect(yourStay()).toHaveTextContent('Tiger Camp'); // kept, not dropped
+  });
+
+  it('lists choices for stays the plan no longer has, and removes them', async () => {
+    const earlier = [{ number: 3, city: 'Pokhara, Nepal', choice: ownChoice('Lake Inn', 70, 2) }];
+    await openTrip(twoStays({ earlier }));
+    api.delete.mockResolvedValue(twoStays().overview);
+    const list = screen.getByRole('region', { name: 'No longer in your plan' });
+
+    expect(list).toHaveTextContent('Pokhara, Nepal: Lake Inn · $140');
+    await userEvent.click(within(list).getByRole('button', { name: /remove pokhara/i }));
+    await userEvent.click(within(list).getByRole('button', { name: 'Remove' }));
+
+    expect(api.delete).toHaveBeenCalledWith('/trips/7/lodging/stays/3');
+    await waitFor(() => expect(screen.queryByRole('region', { name: 'No longer in your plan' })).toBeNull());
+    expect(screen.getByRole('heading', { name: 'Where to stay', level: 2 })).toHaveFocus();
+  });
+
+  it('a one-stay trip has no sections to open', async () => {
+    await openWith();
+
+    expect(screen.queryByRole('button', { expanded: false })).toBeNull();
+    expect(screen.queryByRole('button', { expanded: true })).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL', level: 2 })).toBeInTheDocument();
   });
 });

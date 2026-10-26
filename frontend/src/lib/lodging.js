@@ -54,6 +54,69 @@ export function fitNoteText(fitNote, left) {
   return '';
 }
 
+/** Element ids for one stay's section, so several sections can share a page. */
+export function stayIds(number) {
+  const prefix = `stay-${number}`;
+  return {
+    section: `${prefix}-section`,
+    body: `${prefix}-body`,
+    choiceTitle: `${prefix}-choice-title`,
+    change: `${prefix}-change`,
+    suggestionsTitle: `${prefix}-suggestions-title`,
+    addOwn: `${prefix}-add-own`,
+    elsewhereTitle: `${prefix}-elsewhere-title`,
+  };
+}
+
+/** The status pill on a stay's header: what's been decided for it. */
+export function stayStatus(stay) {
+  const { choice } = stay;
+  if (stay.plan_changed) return { kind: 'check', text: 'Check your choice' };
+  if (!choice) return { kind: 'open', text: 'Not chosen yet' };
+  if (choice.choice === 'skip') return { kind: 'done', text: SKIP_LABELS[choice.skip_reason] };
+  const label = choice.choice === 'hotel' ? 'Hotel chosen' : 'Your own place';
+  return { kind: 'done', text: `${label} · ${formatCurrency(choice.total)}` };
+}
+
+// Mirrors lodging.SLIGHTLY_OVER_SHARE and budget_fit() on the server.
+const SLIGHTLY_OVER_SHARE = 0.1;
+const FIT_ORDER = { fits: 0, slightly_over: 1, over: 2 };
+
+function cents(amount) {
+  return Math.round(amount * 100);
+}
+
+export function budgetFit(total, left) {
+  if (total == null || left == null) return null;
+  if (cents(total) <= cents(left)) return 'fits';
+  if (left > 0 && cents(total) <= cents(left * (1 + SLIGHTLY_OVER_SHARE))) return 'slightly_over';
+  return 'over';
+}
+
+/**
+ * A stay's suggestions judged against what's left for it now. Choosing a hotel for another stay
+ * changes that, and searching again just to re-score would be billed, so the fit, order, best fit
+ * and note are worked out here the way the server does it. Unchanged budget: the server's answer.
+ */
+export function rescore(page, left) {
+  if (left === page.stay.budget_left) return { suggestions: page.suggestions, fitNote: page.fit_note };
+  const scored = page.suggestions.map((hotel) => ({ ...hotel, fit: budgetFit(hotel.stay_total, left), best_fit: false }));
+  if (left != null) {
+    const order = (fit) => FIT_ORDER[fit] ?? 3;
+    scored.sort(
+      (a, b) =>
+        order(a.fit) - order(b.fit) ||
+        (b.rating ?? 0) - (a.rating ?? 0) ||
+        (a.stay_total ?? Infinity) - (b.stay_total ?? Infinity),
+    );
+    if (scored[0]?.fit === 'fits') scored[0] = { ...scored[0], best_fit: true };
+  }
+  let fitNote = null;
+  if (left == null) fitNote = 'no_budget';
+  else if (scored.some((hotel) => hotel.fit) && !scored.some((hotel) => hotel.fit === 'fits')) fitNote = 'none_fit';
+  return { suggestions: scored, fitNote };
+}
+
 function sameName(name) {
   return (name ?? '').trim().replace(/\s+/g, ' ').toLowerCase();
 }

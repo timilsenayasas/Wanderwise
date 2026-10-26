@@ -37,21 +37,64 @@ export function suggestion(placeId, name, nightly, overrides = {}) {
 export const DRAKE = suggestion('p1', 'The Drake', 140, { best_fit: true });
 export const LUX = suggestion('p2', 'Hotel Lux', 300, { rating: 4.2, review_count: 310, fit: 'slightly_over' });
 
-export function lodgingPage(overrides = {}) {
+/** A stay as the API describes it (StayOut). Stay 1 is the whole Nov 5 – 9 trip. */
+export function stayOut(overrides = {}) {
   return {
-    trip_id: 7,
-    currency: 'USD',
+    number: 1,
+    city: 'Chicago, IL',
+    check_in: '2026-11-05',
+    check_out: '2026-11-09',
     nights: 4,
-    lodging_budget_left: 1600,
+    budget_left: 1600,
     choice: null,
-    suggestions: [DRAKE, LUX],
-    suggestions_status: 'ok',
-    fit_note: null,
+    plan_changed: false,
+    choice_city: null,
     ...overrides,
   };
 }
 
-/** A PUT answer: hotel details aren't repeated (the page already has them). */
+/** GET /lodging (and what PUT/DELETE answer with): the stays and their choices, without Google details. */
+export function overviewOf(stays, { lodging_budget_left = 1600, earlier_choices = [] } = {}) {
+  const withoutDetails = (stay) => ({ ...stay, choice: stay.choice && { ...stay.choice, hotel: null } });
+  return { trip_id: 7, currency: 'USD', lodging_budget_left, stays: stays.map(withoutDetails), earlier_choices };
+}
+
+/** The overview a PUT answers with for a one-stay trip whose stay now has this choice. */
+export function overviewWith(choice, stayOverrides = {}) {
+  return overviewOf([stayOut({ choice, ...stayOverrides })]);
+}
+
+/**
+ * A one-stay trip: { overview, page } for GET /lodging and GET /lodging/stays/1.
+ * Takes the same options the single-stay tab used to get in one answer.
+ */
+export function lodgingPage(overrides = {}) {
+  const {
+    nights = 4,
+    lodging_budget_left = 1600,
+    choice = null,
+    suggestions = [DRAKE, LUX],
+    suggestions_status = 'ok',
+    fit_note = null,
+  } = overrides;
+  const stay = stayOut({ nights, budget_left: lodging_budget_left, choice });
+  return {
+    overview: overviewOf([stay], { lodging_budget_left }),
+    page: { trip_id: 7, currency: 'USD', lodging_budget_left, stay, suggestions, suggestions_status, fit_note },
+  };
+}
+
+/** api.get answers: /lodging with the overview, /lodging/stays/{n} with pages[n]. Other paths: `other(path)`. */
+export function mockLodging(api, { overview, pages }, other = () => Promise.resolve(null)) {
+  api.get.mockImplementation((path) => {
+    if (path.endsWith('/lodging')) return Promise.resolve(overview);
+    const stay = path.match(/\/lodging\/stays\/(\d+)$/);
+    if (stay) return Promise.resolve(pages[stay[1]]);
+    return other(path);
+  });
+}
+
+/** A choice as the API gives it. In PUT answers (the overview) there are no hotel details. */
 export function hotelChoice(placeId, nightly, nights = 4, overrides = {}) {
   return {
     choice: 'hotel',
@@ -63,7 +106,7 @@ export function hotelChoice(placeId, nightly, nights = 4, overrides = {}) {
     nights,
     total: nightly * nights,
     fit: 'fits',
-    nights_exceed_trip: false,
+    nights_exceed_stay: false,
     ...overrides,
   };
 }

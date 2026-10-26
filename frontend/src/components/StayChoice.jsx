@@ -1,7 +1,8 @@
 /*
- * Where to stay: the traveler's current choice ("Your stay"), at the top of the Stay tab.
+ * Where to stay: the traveler's choice for one stay ("Your stay"), at the top of its section.
  * A picked hotel shows its fresh Google details; their own hotel and skips show what they told us.
  * Change opens the edit panel (passed in as editForm); Remove asks first, starting on Cancel.
+ * ids come from stayIds(), so each stay's section has its own; level is the title's heading level.
  */
 import { useEffect, useRef, useState } from 'react';
 import Button from './Button';
@@ -12,9 +13,6 @@ import { formatCurrency } from '../lib/format';
 import { choiceName, ESTIMATE_NOTE, nightsText, SKIP_LABELS } from '../lib/lodging';
 import './StayChoice.css';
 
-export const STAY_TITLE_ID = 'stay-choice-title';
-export const CHANGE_BUTTON_ID = 'stay-change';
-
 /**
  * What the stay's nightly price is: still our estimate, an estimate that has since changed
  * (Refresh re-prices hotels, but the stay keeps the price it was chosen at), or the traveler's own.
@@ -24,7 +22,19 @@ function stayPriceLabel(choice, estimate) {
   return estimate === choice.nightly_price ? 'Estimated' : 'Price when you chose it';
 }
 
-export default function StayChoice({ choice, hotel, estimate, tripNights, editForm, onChange, onRemove, onShowSuggestions }) {
+export default function StayChoice({
+  ids,
+  level = 3,
+  oneStay = true,
+  choice,
+  hotel,
+  estimate,
+  stayNights,
+  editForm,
+  onChange,
+  onRemove,
+  onShowSuggestions,
+}) {
   const [confirming, setConfirming] = useState(false);
   const [removing, setRemoving] = useState(false);
   const [removeError, setRemoveError] = useState('');
@@ -87,7 +97,7 @@ export default function StayChoice({ choice, hotel, estimate, tripNights, editFo
   ) : (
     <div className="stay-choice__actions">
       <Button
-        id={CHANGE_BUTTON_ID}
+        id={ids.change}
         variant="secondary"
         size="sm"
         onClick={isSkip ? onShowSuggestions : onChange}
@@ -102,17 +112,18 @@ export default function StayChoice({ choice, hotel, estimate, tripNights, editFo
   );
 
   const shownName = isSkip ? SKIP_LABELS[choice.skip_reason] : name;
+  const Title = `h${level}`;
   const title = (
     // Named in full: the two lines would otherwise run together ("Your stayThe Drake").
-    <h3 id={STAY_TITLE_ID} tabIndex={-1} className="stay-choice__title" aria-label={`Your stay: ${shownName}`}>
+    <Title id={ids.choiceTitle} tabIndex={-1} className="stay-choice__title" aria-label={`Your stay: ${shownName}`}>
       <span className="eyebrow">Your stay</span>
       <span className="stay-choice__name">{shownName}</span>
-    </h3>
+    </Title>
   );
 
   if (isSkip) {
     return (
-      <Card as="section" padding="md" className="stay-choice stay-choice--skip" aria-labelledby={STAY_TITLE_ID}>
+      <Card as="section" padding="md" className="stay-choice stay-choice--skip" aria-labelledby={ids.choiceTitle}>
         <span className="stay-choice__icon">
           <Icon name="check" />
         </span>
@@ -128,7 +139,7 @@ export default function StayChoice({ choice, hotel, estimate, tripNights, editFo
   const priceLabel = stayPriceLabel(choice, estimate);
 
   return (
-    <Card as="section" padding="sm" className="stay-choice" aria-labelledby={STAY_TITLE_ID}>
+    <Card as="section" padding="sm" className="stay-choice" aria-labelledby={ids.choiceTitle}>
       <div className="stay-choice__media">
         {hotel ? (
           <HotelPhoto hotel={hotel} />
@@ -159,12 +170,12 @@ export default function StayChoice({ choice, hotel, estimate, tripNights, editFo
           </div>
         </div>
 
-        {choice.nights_exceed_trip && (
+        {choice.nights_exceed_stay && (
           <div className="stay-choice__note">
             <Icon name="alert" />
             <p>
-              Your trip is now {nightsText(tripNights)}, but your stay is set for {choice.nights}. Update it so your
-              budget is right.
+              {oneStay ? 'Your trip' : 'This stay'} is now {nightsText(stayNights)}, but your stay is set for{' '}
+              {choice.nights}. Update it so your budget is right.
             </p>
             <Button variant="secondary" size="sm" onClick={onChange}>
               Update

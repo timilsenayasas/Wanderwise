@@ -12,8 +12,9 @@ import { formatCurrency } from '../lib/format';
 import { ESTIMATE_NOTE, FIT_LABELS, nightsText, ratingLabel } from '../lib/lodging';
 import './HotelCard.css';
 
-export default function HotelCard({ hotel, nights, chosen, saving, error, onChoose, index = 0 }) {
+export default function HotelCard({ hotel, nights, chosen, saving, error, onChoose, index = 0, nameLevel = 4 }) {
   const id = useId();
+  const Name = `h${nameLevel}`;
   const [askingPrice, setAskingPrice] = useState(false);
   const priced = hotel.nightly_estimate != null;
 
@@ -41,9 +42,9 @@ export default function HotelCard({ hotel, nights, chosen, saving, error, onChoo
       )}
 
       <div className="hotel-card__body">
-        <h4 id={`${id}-name`} className="hotel-card__name">
+        <Name id={`${id}-name`} className="hotel-card__name">
           {hotel.name}
-        </h4>
+        </Name>
         <HotelMeta hotel={hotel} />
 
         <div className="hotel-card__money">
