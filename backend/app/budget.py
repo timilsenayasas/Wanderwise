@@ -11,7 +11,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.models import USER_SOURCE, Activity, CostItem, Trip, TripDay, TripLodging
-from app.schemas import BudgetCategory, BudgetOut, CategoryTotal, CostItemOut, DayTotal
+from app.schemas import BudgetBreakdownOut, BudgetCategory, BudgetOut, CategoryTotal, CostItemOut, DayTotal
 
 # Plans are generated in USD to match the trip budget (see services/llm.py).
 PLAN_CURRENCY = "USD"
@@ -81,6 +81,21 @@ def _cents_by_day(days: list[TripDay], items: list[CostItem], db: Session) -> tu
     return totals, not_by_day
 
 
+def _breakdown(items: list[CostItem], total: int) -> BudgetBreakdownOut:
+    """The total as plan + lodging + the traveler's other costs, in whole cents so it adds up exactly.
+
+    lodging is every user Lodging line (the Stay tab's and typed ones), like the Lodging row above;
+    the plan never makes Lodging lines (PLAN_CATEGORY_MAP), so nothing is counted twice.
+    """
+    plan = sum(to_cents(item.amount) for item in items if item.source != USER_SOURCE)
+    lodging = sum(
+        to_cents(item.amount) for item in items if item.source == USER_SOURCE and item.category == "lodging"
+    )
+    return BudgetBreakdownOut(
+        plan=to_dollars(plan), lodging=to_dollars(lodging), other=to_dollars(total - plan - lodging)
+    )
+
+
 def budget_summary(trip: Trip, db: Session) -> BudgetOut:
     """The trip's costs by category and by day, its total, and how it compares to the budget."""
     items = list(db.scalars(select(CostItem).where(CostItem.trip_id == trip.id).order_by(CostItem.id)))
@@ -105,6 +120,7 @@ def budget_summary(trip: Trip, db: Session) -> BudgetOut:
         ],
         not_by_day=to_dollars(not_by_day),
         total=to_dollars(total),
+        breakdown=_breakdown(items, total),
         budget=trip.budget,
         remaining=None if remaining is None else to_dollars(remaining),
         over_budget=None if remaining is None else remaining < 0,

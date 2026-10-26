@@ -2,16 +2,19 @@ import { useState } from 'react';
 import Button from './Button';
 import Card from './Card';
 import Icon from './Icon';
+import { formatCurrency } from '../lib/format';
 import { dayLodging, tonightText } from '../lib/lodging';
 import './ItineraryView.css';
 
 /**
  * Day-by-day itinerary: a trip's saved plan from GET/POST /api/trips/{id}/plan.
+ * With `budget` (GET /budget), the total is the Budget tab's (plan + lodging + other costs);
+ * while it loads it's the plan's own, and null (it failed) says it's the plan's only.
  * With `lodging` (GET /lodging: its nights and stays), each day also says where the traveler
  * sleeps that night (or that they're travelling), with a switch to say so themselves, and
  * where they check out and check in on the days a stay ends or starts.
  *
- *   <ItineraryView itinerary={plan} lodging={overview} onShowStay={…} onSetNight={(date, inTransit) => …} />
+ *   <ItineraryView itinerary={plan} budget={budget} lodging={overview} onShowStay={…} onSetNight={…} />
  *
  * onSetNight(date, true | false | null) answers with a promise; null goes back to the plan's say.
  */
@@ -40,7 +43,15 @@ function formatDuration(minutes) {
   return m ? `${h} h ${m} min` : `${h} h`;
 }
 
-export default function ItineraryView({ itinerary, lodging, onShowStay, onSetNight }) {
+/** "plan $1,240 + lodging $480 + your other costs $45.50", leaving out parts that are $0 (but never the plan). */
+function breakdownText({ plan, lodging, other }) {
+  const parts = [`plan ${formatCurrency(plan)}`];
+  if (lodging) parts.push(`lodging ${formatCurrency(lodging)}`);
+  if (other) parts.push(`your other costs ${formatCurrency(other)}`);
+  return parts.join(' + ');
+}
+
+export default function ItineraryView({ itinerary, budget, lodging, onShowStay, onSetNight }) {
   const { destination, currency, total_estimated_cost: total, days } = itinerary;
   const firstDate = days[0]?.date;
   const lastDate = days.at(-1)?.date;
@@ -59,9 +70,14 @@ export default function ItineraryView({ itinerary, lodging, onShowStay, onSetNig
           </div>
           <div>
             <dt>Estimated total</dt>
-            <dd>{formatMoney(total, currency)}</dd>
+            <dd>{budget ? formatCurrency(budget.total) : formatMoney(total, currency)}</dd>
           </div>
         </dl>
+        {budget ? (
+          <p className="itinerary__breakdown">{breakdownText(budget.breakdown)}</p>
+        ) : (
+          budget === null && <p className="itinerary__breakdown">Plan only: your other costs couldn&apos;t load.</p>
+        )}
       </Card>
 
       <ol className="itinerary__days">

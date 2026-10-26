@@ -205,14 +205,34 @@ describe('Trip page plan', () => {
 });
 
 describe('Trip page tabs', () => {
-  it('opens on the Itinerary tab without loading the budget', async () => {
+  it('opens on the Itinerary tab', async () => {
     mockLoad(savedPlan('Art Institute of Chicago'));
     renderTrip();
 
     expect(await screen.findByText('Art Institute of Chicago')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Itinerary' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: 'Budget' })).toHaveAttribute('aria-selected', 'false');
-    expect(api.get).not.toHaveBeenCalledWith('/trips/7/budget');
+  });
+
+  it("shows the Budget tab's total on the Itinerary, with what it's made of", async () => {
+    mockLoad(savedPlan('Art Institute of Chicago')); // its plan alone is $32; the budget is $442.50
+    renderTrip();
+
+    expect(await screen.findByText('plan $97 + lodging $300 + your other costs $45.50')).toBeInTheDocument();
+    expect(screen.getByText('Estimated total').nextElementSibling).toHaveTextContent('$442.50');
+    expect(api.get).toHaveBeenCalledWith('/trips/7/budget'); // the same numbers as the Budget tab
+  });
+
+  it("falls back to the plan's own total, and says so, when the budget can't load", async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    const loadNormally = api.get.getMockImplementation();
+    api.get.mockImplementation((path) =>
+      path.endsWith('/budget') ? Promise.reject(new ApiError('Something went wrong.', 500)) : loadNormally(path),
+    );
+    renderTrip();
+
+    expect(await screen.findByText(/plan only/i)).toBeInTheDocument();
+    expect(screen.getByText('Estimated total').nextElementSibling).toHaveTextContent('$32');
   });
 
   it('switches to Budget on click and keeps the tab in the URL', async () => {

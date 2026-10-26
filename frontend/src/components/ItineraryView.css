@@ -43,6 +43,15 @@
   font-variant-numeric: tabular-nums;
 }
 
+/* Under the total: what it's made of (the same total as the Budget tab). */
+.itinerary__breakdown {
+  flex-basis: 100%;
+  margin: 0;
+  font-size: var(--text-sm);
+  font-variant-numeric: tabular-nums;
+  opacity: 0.85;
+}
+
 .itinerary__days,
 .itinerary__activities {
   list-style: none;

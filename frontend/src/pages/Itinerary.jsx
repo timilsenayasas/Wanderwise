@@ -52,11 +52,14 @@ export default function Itinerary() {
   const regenerateRef = useRef(null);
   // Where the traveler sleeps each night (GET /lodging: no Google calls), for the day cards.
   const [lodging, setLodging] = useState(null);
+  // The Budget tab's total and its parts, for the summary (undefined: loading; null: failed).
+  const [budget, setBudget] = useState(undefined);
   // Bumped when a night is switched here, so the Stay tab (if open) reloads its stays.
   const [nightsVersion, setNightsVersion] = useState(0);
 
-  // Asked again each time the Itinerary shows a plan, so a choice just made on the Stay tab shows up.
-  // It's only extra detail: if it fails, the days just don't say where you sleep.
+  // Both asked again each time the Itinerary shows a plan, so a change just made on the Stay or
+  // Budget tab shows up. Neither calls Google. They're extra detail: if one fails, the days just
+  // don't say where you sleep, or the total is the plan's own.
   const showingPlan = status === 'ready' && tab === 'itinerary' && Boolean(plan);
   useEffect(() => {
     if (!showingPlan) return undefined;
@@ -68,6 +71,14 @@ export default function Itinerary() {
       })
       .catch(() => {
         if (!cancelled) setLodging(null);
+      });
+    api
+      .get(`/trips/${tripId}/budget`)
+      .then((data) => {
+        if (!cancelled) setBudget(data);
+      })
+      .catch(() => {
+        if (!cancelled) setBudget(null);
       });
     return () => {
       cancelled = true;
@@ -294,6 +305,7 @@ export default function Itinerary() {
 
               <ItineraryView
                 itinerary={plan}
+                budget={budget}
                 lodging={lodging}
                 onShowStay={() => showTab('stay')}
                 onSetNight={setNight}

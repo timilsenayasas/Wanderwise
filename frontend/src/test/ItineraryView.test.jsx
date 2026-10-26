@@ -212,3 +212,28 @@ describe('Nights in transit on the Itinerary', () => {
     expect(day(1)).toHaveTextContent('Tonight: in transit');
   });
 });
+
+describe("The Itinerary's total", () => {
+  const total = () => screen.getByText('Estimated total').nextElementSibling;
+
+  it("is the Budget tab's total, with plan + lodging + your other costs", () => {
+    render(<ItineraryView itinerary={PLAN} budget={{ total: 1765.5, breakdown: { plan: 1240, lodging: 480, other: 45.5 } }} />);
+
+    expect(total()).toHaveTextContent('$1,765.50');
+    expect(screen.getByText('plan $1,240 + lodging $480 + your other costs $45.50')).toBeInTheDocument();
+  });
+
+  it('leaves out parts that are $0, but never the plan', () => {
+    render(<ItineraryView itinerary={PLAN} budget={{ total: 0, breakdown: { plan: 0, lodging: 0, other: 0 } }} />);
+
+    expect(screen.getByText('plan $0')).toBeInTheDocument();
+    expect(screen.queryByText(/lodging \$|other costs/)).toBeNull();
+  });
+
+  it("is the plan's own while the budget loads", () => {
+    render(<ItineraryView itinerary={{ ...PLAN, total_estimated_cost: 320 }} />);
+
+    expect(total()).toHaveTextContent('$320');
+    expect(screen.queryByText(/plan only|plan \$/i)).toBeNull();
+  });
+});

@@ -229,6 +229,14 @@ class DayTotal(BaseModel):
     amount: float
 
 
+class BudgetBreakdownOut(BaseModel):
+    """The total in three parts, for the Itinerary: plan + lodging + other == total."""
+
+    plan: float  # the AI plan's cost lines
+    lodging: float  # every Lodging line: the Stay tab's and ones the traveler typed
+    other: float  # the traveler's other cost lines
+
+
 class BudgetOut(BaseModel):
     """Worked out from the trip's cost lines, not the AI's own total."""
 
@@ -240,6 +248,7 @@ class BudgetOut(BaseModel):
     per_day: list[DayTotal]  # the saved plan's days; empty without a plan
     not_by_day: float  # user lines not on a plan day; sum(per_day) + not_by_day == total
     total: float
+    breakdown: BudgetBreakdownOut
     budget: float | None
     remaining: float | None  # budget - total; negative when over budget
     over_budget: bool | None

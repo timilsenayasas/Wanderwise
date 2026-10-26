@@ -39,6 +39,8 @@ export function budgetResponse(overrides = {}) {
     budget: 1200,
     remaining: 757.5,
     over_budget: false,
+    // Plan lines 65 + 32, the typed hotel 300, the train 45.50.
+    breakdown: { plan: 97, lodging: 300, other: 45.5 },
     items: [PLAN_FOOD, PLAN_ACTIVITIES, HOTEL, TRAIN],
     ...overrides,
   };
@@ -52,6 +54,7 @@ export function emptyBudget(overrides = {}) {
     not_by_day: 0,
     total: 0,
     remaining: 1200,
+    breakdown: { plan: 0, lodging: 0, other: 0 },
     items: [],
     ...overrides,
   });
