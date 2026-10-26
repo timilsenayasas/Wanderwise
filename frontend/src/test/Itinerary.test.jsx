@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
 import Itinerary from '../pages/Itinerary';
 import { budgetResponse, emptyBudget, HOTEL } from './budgetFixtures';
-import { lodgingPage } from './lodgingFixtures';
+import { lodgingPage, nightsOf } from './lodgingFixtures';
 import { googleMaps, resetGoogleMaps } from './mockGoogleMaps';
 
 vi.mock('@vis.gl/react-google-maps', () => import('./mockGoogleMaps'));
@@ -337,6 +337,23 @@ describe('Trip page tabs', () => {
     const stay = screen.getByRole('tab', { name: 'Stay' });
     expect(stay).toHaveAttribute('aria-selected', 'true');
     expect(stay).toHaveFocus();
+  });
+
+  it('switches a night to travelling and shows the answer straight away', async () => {
+    const plan = savedPlan('Art Institute of Chicago');
+    plan.days.push({ ...plan.days[0], id: 2, day_number: 2, date: '2026-11-06' }); // Nov 5 – 6: one night
+    const before = lodgingPage({ nights: 1 });
+    before.overview.nights = nightsOf(['2026-11-05']);
+    mockLoad(plan, TRIP, budgetResponse(), before);
+    api.put.mockResolvedValue({ ...before.overview, nights: nightsOf(['2026-11-05'], ['2026-11-05'], ['2026-11-05']), stays: [] });
+    renderTrip();
+
+    await userEvent.click(await screen.findByRole('button', { name: /i'm travelling this night/i }));
+
+    expect(api.put).toHaveBeenCalledWith('/trips/7/nights/2026-11-05', { in_transit: true });
+    expect(await screen.findByText('in transit', { exact: false })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /i'm travelling this night/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: "Use the plan's" })).toBeInTheDocument();
   });
 
   it("the Budget tab's Stay line leads to the Stay tab", async () => {

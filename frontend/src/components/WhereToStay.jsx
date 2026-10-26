@@ -15,7 +15,7 @@ import './WhereToStay.css';
 
 const TITLE_ID = 'stay-title';
 
-export default function WhereToStay({ trip }) {
+export default function WhereToStay({ trip, nightsVersion = 0 }) {
   const [overview, setOverview] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [loadError, setLoadError] = useState('');
@@ -24,9 +24,9 @@ export default function WhereToStay({ trip }) {
   const latestRequest = useRef(0);
   const announce = useCallback((message) => setAnnouncement(message), []);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async ({ quiet = false } = {}) => {
     const request = ++latestRequest.current;
-    setStatus('loading');
+    if (!quiet) setStatus('loading');
     try {
       const data = await api.get(`/trips/${trip.id}/lodging`);
       if (request !== latestRequest.current) return;
@@ -46,6 +46,11 @@ export default function WhereToStay({ trip }) {
     };
   }, [load]);
 
+  // A night switched on the Itinerary changes the stays: reload them (free), without a spinner.
+  useEffect(() => {
+    if (nightsVersion > 0) load({ quiet: true });
+  }, [nightsVersion, load]);
+
   function toggle(number) {
     setOpened((current) => {
       const next = new Set(current);
@@ -64,7 +69,7 @@ export default function WhereToStay({ trip }) {
           <Card padding="lg" className="stay__error">
             <p role="alert">{loadError}</p>
             <div>
-              <Button variant="secondary" onClick={load}>
+              <Button variant="secondary" onClick={() => load()}>
                 Try again
               </Button>
             </div>
@@ -92,7 +97,10 @@ export default function WhereToStay({ trip }) {
               {lodgingLeftText(overview.lodging_budget_left)}
             </p>
             <p className="text-muted">
-              Your trip has {stays.length} stays. Each has its own hotel and its own Lodging line in your budget.
+              {stays.length > 1
+                ? `Your trip has ${stays.length} stays. Each has its own hotel and its own Lodging line in your budget.`
+                : 'Every night of this trip is spent travelling, so there is nowhere to book. ' +
+                  'If that is wrong, switch a night off on the Itinerary.'}
             </p>
           </div>
         </header>
@@ -104,7 +112,8 @@ export default function WhereToStay({ trip }) {
 
       {stays.map((stay) => (
         <StaySection
-          key={stay.number}
+          // A stay that changes city or dates (new plan, a night switched) is a new section, not stale hotels.
+          key={`${stay.number}-${stay.city}-${stay.check_in}`}
           trip={trip}
           stay={stay}
           lodgingLeft={overview.lodging_budget_left}

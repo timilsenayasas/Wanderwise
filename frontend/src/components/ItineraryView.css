@@ -193,3 +193,23 @@
   font-weight: 700;
   overflow-wrap: anywhere;
 }
+
+/* "I'm travelling this night": a toggle, pressed when the night is spent travelling. */
+.itinerary__night-switch {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.itinerary__transit[aria-pressed='true'] {
+  background: var(--color-primary-soft);
+}
+
+/* Two classes: beats `.itinerary__night p`, so the message takes its own full row. */
+.itinerary__night .itinerary__night-error {
+  flex-basis: 100%;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-sm);
+  background: var(--color-error-soft);
+  color: var(--color-error);
+}

@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import Button from './Button';
 import Card from './Card';
 import Icon from './Icon';
@@ -6,10 +7,13 @@ import './ItineraryView.css';
 
 /**
  * Day-by-day itinerary: a trip's saved plan from GET/POST /api/trips/{id}/plan.
- * With `stays` (from GET /lodging), each day also says where the traveler sleeps that night,
- * and a day the base city changes says where they check out and check in.
+ * With `lodging` (GET /lodging: its nights and stays), each day also says where the traveler
+ * sleeps that night (or that they're travelling), with a switch to say so themselves, and
+ * where they check out and check in on the days a stay ends or starts.
  *
- *   <ItineraryView itinerary={plan} stays={overview.stays} onShowStay={…} />
+ *   <ItineraryView itinerary={plan} lodging={overview} onShowStay={…} onSetNight={(date, inTransit) => …} />
+ *
+ * onSetNight(date, true | false | null) answers with a promise; null goes back to the plan's say.
  */
 export function formatMoney(amount, currency) {
   try {
@@ -36,8 +40,9 @@ function formatDuration(minutes) {
   return m ? `${h} h ${m} min` : `${h} h`;
 }
 
-export default function ItineraryView({ itinerary, stays, onShowStay }) {
+export default function ItineraryView({ itinerary, lodging, onShowStay, onSetNight }) {
   const { destination, currency, total_estimated_cost: total, days } = itinerary;
+  const firstDate = days[0]?.date;
   const lastDate = days.at(-1)?.date;
 
   return (
@@ -61,17 +66,17 @@ export default function ItineraryView({ itinerary, stays, onShowStay }) {
 
       <ol className="itinerary__days">
         {days.map((day, i) => {
-          const { tonight, move } = dayLodging(stays, day.date, lastDate);
+          const { night, tonight, checkOut, checkIn } = dayLodging(lodging, day.date, firstDate, lastDate);
           return (
             <li key={day.date}>
               <Card as="section" padding="md" aria-labelledby={`day-${i}`}>
                 <h3 id={`day-${i}`} className="itinerary__day-title">
                   <span className="itinerary__day-num">Day {i + 1}</span> {formatDay(day.date)}
                 </h3>
-                {move && (
+                {(checkOut || checkIn) && (
                   <ul className="itinerary__move" aria-label="Moving on today">
-                    <li>Check out: {move.from}</li>
-                    <li>Check in: {move.to}</li>
+                    {checkOut && <li>Check out: {checkOut}</li>}
+                    {checkIn && <li>Check in: {checkIn}</li>}
                   </ul>
                 )}
                 <ol className="itinerary__activities">
@@ -97,7 +102,9 @@ export default function ItineraryView({ itinerary, stays, onShowStay }) {
                     </li>
                   ))}
                 </ol>
-                {tonight && <Tonight stay={tonight} onShowStay={onShowStay} />}
+                {(night || tonight) && (
+                  <Tonight night={night} stay={tonight} onShowStay={onShowStay} onSetNight={onSetNight} />
+                )}
               </Card>
             </li>
           );
@@ -108,28 +115,77 @@ export default function ItineraryView({ itinerary, stays, onShowStay }) {
   );
 }
 
-/** "Tonight: your hotel in Chitwan", or a way to settle it on the Stay tab. */
-function Tonight({ stay, onShowStay }) {
-  const text = tonightText(stay);
+/**
+ * "Tonight: your hotel in Chitwan", "Tonight: in transit", or a way to settle it on the Stay tab,
+ * plus the traveler's switch for the night, in case the plan got it wrong.
+ */
+function Tonight({ night, stay, onShowStay, onSetNight }) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+  const inTransit = Boolean(night?.in_transit);
+  const text = !inTransit && stay ? tonightText(stay) : null;
+
+  async function setNight(value) {
+    setSaving(true);
+    setError('');
+    try {
+      await onSetNight(night.date, value);
+    } catch (err) {
+      setError(err.message || 'Could not change that night. Please try again.');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <div className="itinerary__night">
-      <Icon name="bed" size={18} />
+      <Icon name={inTransit ? 'plane' : 'bed'} size={18} />
       <p>
-        {text ? (
+        {inTransit ? (
+          <>
+            <span className="itinerary__night-label">Tonight:</span> in transit
+          </>
+        ) : text ? (
           <>
             <span className="itinerary__night-label">Tonight:</span> {text}
           </>
         ) : (
-          <>
-            <span className="itinerary__night-label">Tonight in {stay.city}:</span>{' '}
-            {stay.plan_changed ? 'check your hotel, your plan changed' : 'no hotel chosen yet'}
-          </>
+          stay && (
+            <>
+              <span className="itinerary__night-label">Tonight in {stay.city}:</span>{' '}
+              {stay.plan_changed ? 'check your hotel, your plan changed' : 'no hotel chosen yet'}
+            </>
+          )
         )}
       </p>
-      {!text && onShowStay && (
+      {!inTransit && stay && !text && onShowStay && (
         <Button variant="ghost" size="sm" onClick={onShowStay}>
           {stay.plan_changed ? 'Check on the Stay tab' : 'Choose where to stay'}
         </Button>
+      )}
+      {night && onSetNight && (
+        <span className="itinerary__night-switch">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="itinerary__transit"
+            aria-pressed={inTransit}
+            disabled={saving}
+            onClick={() => setNight(!inTransit)}
+          >
+            {inTransit && <Icon name="check" size={16} />} I&apos;m travelling this night
+          </Button>
+          {night.set_by === 'you' && (
+            <Button variant="ghost" size="sm" disabled={saving} onClick={() => setNight(null)}>
+              Use the plan&apos;s
+            </Button>
+          )}
+        </span>
+      )}
+      {error && (
+        <p className="itinerary__night-error" role="alert">
+          {error}
+        </p>
       )}
     </div>
   );

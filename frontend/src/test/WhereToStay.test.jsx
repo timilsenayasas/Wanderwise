@@ -10,6 +10,7 @@ import {
   lodgingPage,
   LUX,
   mockLodging,
+  nightsOf,
   overviewOf,
   overviewWith,
   ownChoice,
@@ -673,5 +674,33 @@ describe('In StrictMode, like the app', () => {
     );
 
     expect(await screen.findByRole('article', { name: 'The Drake' })).toBeVisible();
+  });
+});
+
+describe('Every night in transit', () => {
+  it('says there is nowhere to book, and searches nothing', async () => {
+    const overview = overviewOf([], { nights: nightsOf(['2026-11-05', '2026-11-06'], ['2026-11-05', '2026-11-06']) });
+    mockLodging(api, { overview, pages: {} });
+    render(<WhereToStay trip={STAY_TRIP} />);
+
+    expect(await screen.findByRole('heading', { name: 'Where to stay', level: 2 })).toBeInTheDocument();
+    expect(screen.getByText(/every night of this trip is spent travelling/i)).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Suggested hotels' })).toBeNull();
+    expect(api.get.mock.calls.map(([path]) => path)).toEqual(['/trips/7/lodging']);
+  });
+});
+
+describe('A night switched on the Itinerary', () => {
+  it('reloads the stays without searching again', async () => {
+    const { overview, page } = lodgingPage();
+    mockLodging(api, { overview, pages: { 1: page } });
+    const { rerender } = render(<WhereToStay trip={STAY_TRIP} nightsVersion={0} />);
+    await screen.findByRole('article', { name: 'The Drake' });
+
+    rerender(<WhereToStay trip={STAY_TRIP} nightsVersion={1} />);
+
+    await waitFor(() => expect(api.get.mock.calls.filter(([path]) => path === '/trips/7/lodging')).toHaveLength(2));
+    expect(screen.getByRole('article', { name: 'The Drake' })).toBeVisible(); // no loading flash, same stay
+    expect(api.get.mock.calls.filter(([path]) => path.includes('/stays/'))).toHaveLength(1);
   });
 });

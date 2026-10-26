@@ -284,3 +284,35 @@ def test_stays_migration_downgrades_back_to_one_choice_per_trip(tmp_path):
 
     assert count == 1  # only stay 1 fits the old table
     assert "stay_number" not in columns
+
+
+def test_existing_plan_days_are_not_in_transit(tmp_path):
+    """Days saved before transit nights default to a hotel night; overrides start empty."""
+    engine = make_engine(tmp_path)
+    upgrade_to(engine, "d7b3f19a4c82")  # the revision before transit nights
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users (id, email, password_hash, name, created_at, updated_at) "
+                "VALUES (1, 'old@example.com', 'x', 'Old User', '2026-10-01', '2026-10-01')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO trips (id, user_id, origin, destination, start_date, end_date, travelers, created_at) "
+                "VALUES (1, 1, 'Dallas', 'Kathmandu', '2026-10-10', '2026-10-12', 1, '2026-10-01')"
+            )
+        )
+        connection.execute(
+            text("INSERT INTO trip_days (trip_id, day_number, trip_date) VALUES (1, 1, '2026-10-10')")
+        )
+
+    upgrade_database(engine)
+
+    with engine.connect() as connection:
+        in_transit = connection.execute(text("SELECT in_transit FROM trip_days")).scalar()
+        overrides = connection.execute(text("SELECT COUNT(*) FROM trip_night_overrides")).scalar()
+    engine.dispose()
+
+    assert (in_transit, overrides) == (0, 0)

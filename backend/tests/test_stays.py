@@ -21,11 +21,12 @@ from test_lodging import (
     set_choice,
 )
 from test_places import fake_places, place
-from test_plan import use_fake_gemini
+from test_plan import FIRST_PLAN, use_fake_gemini
 
+from app.config import settings
 from app.database import get_db
 from app.main import app
-from app.models import LODGING_HOTEL, TripDay, TripLodging
+from app.models import LODGING_HOTEL, TripDay, TripLodging, TripNightOverride
 
 KATHMANDU = "Kathmandu, Nepal"
 CHITWAN = "Chitwan, Nepal"
@@ -33,13 +34,26 @@ POKHARA = "Pokhara, Nepal"
 TIGER = place("t1", "Tiger Lodge")
 
 
-def set_plan_cities(trip_id: int, cities: list[str | None], start: date = date(2026, 10, 10)) -> None:
-    """Replace the trip's plan days with one day per city (None: no base city), from `start`."""
+def set_plan_cities(
+    trip_id: int, cities: list[str | None], start: date = date(2026, 10, 10), transit: set[int] = frozenset()
+) -> None:
+    """Replace the trip's plan days with one day per city (None: no base city), from `start`.
+
+    transit: the day numbers (1 = first) whose night the plan says is spent travelling.
+    """
     db = next(app.dependency_overrides[get_db]())
     try:
         db.execute(delete(TripDay).where(TripDay.trip_id == trip_id))
         for i, city in enumerate(cities):
-            db.add(TripDay(trip_id=trip_id, day_number=i + 1, trip_date=start + timedelta(days=i), base_city=city))
+            db.add(
+                TripDay(
+                    trip_id=trip_id,
+                    day_number=i + 1,
+                    trip_date=start + timedelta(days=i),
+                    base_city=city,
+                    in_transit=i + 1 in transit,
+                )
+            )
         db.commit()
     finally:
         db.close()
@@ -325,5 +339,129 @@ def test_stay_rows_are_kept_apart_per_stay(client, monkeypatch):
             (2, CHITWAN, "not_needed"),
         ]
         assert LODGING_HOTEL not in {row.choice for row in rows}
+    finally:
+        db.close()
+
+
+# --- Nights in transit ----------------------------------------------------
+def nights(client, trip_id: int) -> list[tuple]:
+    """(date, in transit, set by) per night."""
+    return [(n["date"], n["in_transit"], n["set_by"]) for n in overview(client, trip_id)["nights"]]
+
+
+def put_night(client, trip_id: int, night: str, in_transit: bool):
+    return client.put(f"/api/trips/{trip_id}/nights/{night}", json={"in_transit": in_transit})
+
+
+def test_nights_in_transit_belong_to_no_stay(client):
+    """Day 1 is an overnight flight to Kathmandu: no hotel that night."""
+    register(client)
+    trip_id = create_trip(client, destination=KATHMANDU)
+    set_plan_cities(trip_id, [KATHMANDU, KATHMANDU, CHITWAN, CHITWAN, CHITWAN], transit={1})
+
+    assert stays(client, trip_id) == [
+        (1, KATHMANDU, "2026-10-11", "2026-10-12", 1),
+        (2, CHITWAN, "2026-10-12", "2026-10-14", 2),
+    ]
+    assert nights(client, trip_id) == [
+        ("2026-10-10", True, "plan"),
+        ("2026-10-11", False, "plan"),
+        ("2026-10-12", False, "plan"),
+        ("2026-10-13", False, "plan"),
+    ]
+
+
+def test_a_transit_night_splits_the_same_city_into_two_stays(client):
+    register(client)
+    trip_id = create_trip(client, destination=KATHMANDU)
+    set_plan_cities(trip_id, [KATHMANDU, KATHMANDU, KATHMANDU, KATHMANDU, KATHMANDU], transit={2})
+
+    assert stays(client, trip_id) == [
+        (1, KATHMANDU, "2026-10-10", "2026-10-11", 1),
+        (2, KATHMANDU, "2026-10-12", "2026-10-14", 2),  # rebooked after the night away
+    ]
+
+
+def test_every_night_in_transit_leaves_no_stays(client, monkeypatch):
+    register(client)
+    trip_id = create_trip(client, destination=KATHMANDU)
+    set_plan_cities(trip_id, [KATHMANDU] * 5, transit={1, 2, 3, 4})
+
+    data = overview(client, trip_id)
+    assert data["stays"] == []
+    assert {n["in_transit"] for n in data["nights"]} == {True}
+    # No stay to search or choose for (and no Google call: the autouse fixture would fail).
+    assert client.get(f"/api/trips/{trip_id}/lodging/stays/1").status_code == 404
+    assert put_choice(client, trip_id, choice="skip", reason="not_needed").status_code == 404
+    assert get_pins(client, trip_id) == []
+
+
+def test_my_switch_overrides_the_plan_either_way(client):
+    trip_id = two_city_trip(client)  # Kathmandu 10-10..12, Chitwan 10-12..14, nothing in transit
+    set_plan_cities(trip_id, [KATHMANDU, KATHMANDU, CHITWAN, CHITWAN, CHITWAN], transit={4})
+
+    r = put_night(client, trip_id, "2026-10-10", True)  # I'm travelling that night after all
+    assert r.status_code == 200
+    assert r.json()["nights"][0] == {"date": "2026-10-10", "in_transit": True, "set_by": "you"}
+    assert [s["nights"] for s in r.json()["stays"]] == [1, 1]  # answers with the new stays
+
+    r = put_night(client, trip_id, "2026-10-13", False)  # the plan was wrong: I'm in a hotel
+    assert r.json()["nights"][3] == {"date": "2026-10-13", "in_transit": False, "set_by": "you"}
+    assert stays(client, trip_id)[-1] == (2, CHITWAN, "2026-10-12", "2026-10-14", 2)
+
+
+def test_resetting_a_night_goes_back_to_the_plans_mark(client):
+    trip_id = two_city_trip(client)
+    set_plan_cities(trip_id, [KATHMANDU, KATHMANDU, CHITWAN, CHITWAN, CHITWAN], transit={4})
+    put_night(client, trip_id, "2026-10-13", False)
+
+    r = client.delete(f"/api/trips/{trip_id}/nights/2026-10-13")
+
+    assert r.status_code == 200
+    assert r.json()["nights"][3] == {"date": "2026-10-13", "in_transit": True, "set_by": "plan"}
+    assert client.delete(f"/api/trips/{trip_id}/nights/2026-10-13").status_code == 200  # nothing to reset: fine
+
+
+def test_my_switches_outlive_regenerating_the_plan(client, monkeypatch):
+    trip_id = two_city_trip(client, interests=["food"])
+    put_night(client, trip_id, "2026-10-10", True)
+
+    monkeypatch.setattr(settings, "maps_api_key", "")  # plans saved without map lookups
+    use_fake_gemini(monkeypatch, FIRST_PLAN)
+    assert client.post(f"/api/trips/{trip_id}/plan").status_code == 200
+
+    assert nights(client, trip_id)[0] == ("2026-10-10", True, "you")
+
+
+def test_only_the_trips_own_nights_can_be_switched(client):
+    trip_id = two_city_trip(client)  # nights 10-10 .. 10-13
+
+    for night in ("2026-10-09", "2026-10-14"):  # before the trip; the last day (no night)
+        assert put_night(client, trip_id, night, True).status_code == 404
+        assert client.delete(f"/api/trips/{trip_id}/nights/{night}").status_code == 404
+    assert put_night(client, trip_id, "not-a-date", True).status_code == 422
+    assert client.put(f"/api/trips/{trip_id}/nights/2026-10-10", json={}).status_code == 422
+
+
+def test_night_switches_need_login_and_the_owner(client):
+    assert client.put("/api/trips/1/nights/2026-10-10", json={"in_transit": True}).status_code == 401
+
+    trip_id = two_city_trip(client)
+    client.post("/api/auth/logout")
+    register(client, email="second@example.com")
+
+    assert put_night(client, trip_id, "2026-10-10", True).status_code == 404
+    assert client.delete(f"/api/trips/{trip_id}/nights/2026-10-10").status_code == 404
+
+
+def test_deleting_a_trip_removes_its_night_switches(client):
+    trip_id = two_city_trip(client)
+    put_night(client, trip_id, "2026-10-10", True)
+
+    client.delete(f"/api/trips/{trip_id}")
+
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        assert db.scalars(select(TripNightOverride)).all() == []
     finally:
         db.close()

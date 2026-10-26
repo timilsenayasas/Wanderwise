@@ -138,6 +138,8 @@ class ItineraryDay(BaseModel):
     date: date
     # Where the traveler sleeps that night. Optional, so an answer without it still saves.
     base_city: str | None = None
+    # The night is spent travelling (no hotel). Optional for the same reason.
+    in_transit: bool = False
     activities: list[ItineraryActivity]
 
     check_base_city = field_validator("base_city")(_base_city)
@@ -165,6 +167,7 @@ class SavedDay(BaseModel):
     day_number: int
     date: date
     base_city: str | None  # None for plans saved before multi-city trips: the trip's destination
+    in_transit: bool  # the plan's mark; the traveler's own say is in GET /lodging's nights
     activities: list[SavedActivity]
 
 
@@ -376,13 +379,28 @@ class EarlierChoiceOut(BaseModel):
     choice: LodgingChoiceOut
 
 
+class NightOut(BaseModel):
+    """One night of the trip (by the date it starts) and whether it's spent travelling."""
+
+    date: date
+    in_transit: bool  # no hotel needed, and part of no stay
+    set_by: Literal["plan", "you"]  # the AI plan's mark (or none), or the traveler's switch
+
+
+class NightIn(BaseModel):
+    """The traveler's switch: "I'm travelling this night" (true) or not (false)."""
+
+    in_transit: bool
+
+
 class LodgingOverviewOut(BaseModel):
-    """Every stay and its choice, without any Google calls (Stay tab, Itinerary)."""
+    """Every night and stay with its choice, without any Google calls (Stay tab, Itinerary)."""
 
     trip_id: int
     currency: str
     lodging_budget_left: float | None  # trip budget minus everything except lodging
-    stays: list[StayOut]  # always at least one
+    nights: list[NightOut]
+    stays: list[StayOut]  # none only when every night is in transit
     earlier_choices: list[EarlierChoiceOut]
 
 

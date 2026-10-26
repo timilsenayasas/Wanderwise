@@ -5,23 +5,27 @@ Places, which is billed, so the page asks for them only when that stay's section
 opened or Refresh is pressed.
 """
 
+from datetime import date
+
 from fastapi import APIRouter, HTTPException, status
 
 from app.database import DbSession
 from app.lodging import (
     MAX_STAYS,
     ChoiceError,
+    NightNotFound,
     StayNotFound,
     clear_stale_coords,
     hotel_pins,
     lodging_overview,
     remove_choice,
     save_choice,
+    set_night_transit,
     stay_page,
 )
 from app.models import Trip
 from app.routers.trips import get_own_trip
-from app.schemas import LodgingChoiceIn, LodgingOverviewOut, LodgingPinOut, StayPageOut
+from app.schemas import LodgingChoiceIn, LodgingOverviewOut, LodgingPinOut, NightIn, StayPageOut
 from app.security import CurrentUser
 
 router = APIRouter(prefix="/api/trips", tags=["where to stay"])
@@ -95,3 +99,31 @@ def get_lodging_pins(trip_id: int, user: CurrentUser, db: DbSession) -> list[Lod
     pins = hotel_pins(trip, db)
     db.commit()  # refreshed or cleared coordinates
     return pins
+
+
+# --- Nights in transit ----------------------------------------------------
+def _set_night(
+    trip_id: int, night: date, in_transit: bool | None, user: CurrentUser, db: DbSession
+) -> LodgingOverviewOut:
+    trip = get_own_trip(trip_id, user, db)
+    try:
+        set_night_transit(trip, night, in_transit, db)
+    except NightNotFound:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Night not found") from None
+    db.commit()
+    return lodging_overview(trip, db)
+
+
+@router.put("/{trip_id}/nights/{night}", response_model=LodgingOverviewOut)
+def set_night(trip_id: int, night: date, body: NightIn, user: CurrentUser, db: DbSession) -> LodgingOverviewOut:
+    """The traveler's switch: this night is (or isn't) spent travelling, whatever the plan says.
+
+    Kept when the plan is regenerated. Answers with the overview: the stays change with it.
+    """
+    return _set_night(trip_id, night, body.in_transit, user, db)
+
+
+@router.delete("/{trip_id}/nights/{night}", response_model=LodgingOverviewOut)
+def reset_night(trip_id: int, night: date, user: CurrentUser, db: DbSession) -> LodgingOverviewOut:
+    """Go back to the plan's say on whether this night is spent travelling."""
+    return _set_night(trip_id, night, None, user, db)

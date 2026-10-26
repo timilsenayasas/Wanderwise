@@ -32,6 +32,7 @@ from app.models import (
     TripDay,
     TripHotelEstimate,
     TripLodging,
+    TripNightOverride,
     utcnow,
 )
 from app.schemas import (
@@ -44,6 +45,7 @@ from app.schemas import (
     LodgingChoiceOut,
     LodgingFit,
     LodgingOverviewOut,
+    NightOut,
     LodgingPinOut,
     OwnHotelIn,
     PhotoAuthorOut,
@@ -101,14 +103,42 @@ def _place(city: str | None) -> str:
     return (city or "").split(",")[0].strip().casefold()
 
 
-def trip_stays(trip: Trip, db: Session) -> list[Stay]:
+@dataclass(frozen=True)
+class Night:
+    date: date
+    in_transit: bool  # spent travelling (overnight flight, train, bus): no hotel
+    set_by: str  # "plan" (the AI plan's mark, or no mark) or "you" (the traveler's override)
+
+
+def night_dates(trip: Trip) -> list[date]:
+    """A night belongs to the day it starts on: the start date up to the day before the end."""
+    return [trip.start_date + timedelta(days=i) for i in range(trip_nights(trip))]
+
+
+def trip_night_marks(trip: Trip, db: Session) -> list[Night]:
+    """Every night of the trip and whether it's in transit: the traveler's say, else the plan's."""
+    planned = {
+        day.trip_date
+        for day in db.scalars(select(TripDay).where(TripDay.trip_id == trip.id, TripDay.in_transit.is_(True)))
+    }
+    overrides = {
+        row.night_date: row.in_transit
+        for row in db.scalars(select(TripNightOverride).where(TripNightOverride.trip_id == trip.id))
+    }
+    return [
+        Night(night, overrides[night], "you") if night in overrides else Night(night, night in planned, "plan")
+        for night in night_dates(trip)
+    ]
+
+
+def trip_stays(trip: Trip, db: Session, nights: list[Night] | None = None) -> list[Stay]:
     """The trip's stays, in order: consecutive nights grouped by the plan's base city.
 
-    A night belongs to the day it starts on. Days without a base city take the one before
-    (or the destination). More than MAX_STAYS stays: the extra nights join the last one.
+    Days without a base city take the one before (or the destination). Nights in transit belong
+    to no stay and end a run, so the same city before and after one is two stays (rebooked).
+    More than MAX_STAYS stays: the extra nights join the last one. Every night in transit: none.
     """
-    nights = trip_nights(trip)
-    night_dates = [trip.start_date + timedelta(days=i) for i in range(nights)]
+    nights = nights if nights is not None else trip_night_marks(trip, db)
     cities = {
         day.trip_date: day.base_city
         for day in db.scalars(select(TripDay).where(TripDay.trip_id == trip.id, TripDay.base_city.is_not(None)))
@@ -116,22 +146,46 @@ def trip_stays(trip: Trip, db: Session) -> list[Stay]:
 
     groups: list[tuple[str, list[date]]] = []
     city = trip.destination
-    for night in night_dates:
-        city = cities.get(night, city)
-        if groups and _city_key(groups[-1][0]) == _city_key(city):
-            groups[-1][1].append(night)
+    after_transit = False
+    for night in nights:
+        city = cities.get(night.date, city)
+        if night.in_transit:
+            after_transit = True
+            continue
+        if groups and not after_transit and _city_key(groups[-1][0]) == _city_key(city):
+            groups[-1][1].append(night.date)
         elif len(groups) == MAX_STAYS:
-            groups[-1][1].append(night)
+            groups[-1][1].append(night.date)
         else:
-            groups.append((city, [night]))
+            groups.append((city, [night.date]))
+        after_transit = False
 
-    # A same-day trip checks out the day it checks in.
-    last_out = max(trip.end_date, trip.start_date)
-    stays = []
-    for number, (stay_city, dates) in enumerate(groups, start=1):
-        check_out = dates[-1] + timedelta(days=1) if number < len(groups) else last_out
-        stays.append(Stay(number, stay_city, dates[0], check_out, len(dates)))
-    return stays
+    # Check out the morning after the last night; a same-day trip checks out the day it checks in.
+    trip_end = max(trip.end_date, trip.start_date)
+    return [
+        Stay(number, stay_city, dates[0], min(dates[-1] + timedelta(days=1), trip_end), len(dates))
+        for number, (stay_city, dates) in enumerate(groups, start=1)
+    ]
+
+
+class NightNotFound(Exception):
+    """That date isn't one of the trip's nights."""
+
+
+def set_night_transit(trip: Trip, night: date, in_transit: bool | None, db: Session) -> None:
+    """The traveler's say on a night: in transit or not, or None to go back to the plan's. The caller commits."""
+    if night not in night_dates(trip):
+        raise NightNotFound
+    row = db.scalar(
+        select(TripNightOverride).where(TripNightOverride.trip_id == trip.id, TripNightOverride.night_date == night)
+    )
+    if in_transit is None:
+        if row is not None:
+            db.delete(row)
+        return
+    row = row or TripNightOverride(trip_id=trip.id, night_date=night)
+    row.in_transit = in_transit
+    db.add(row)
 
 
 def get_stay(stays: list[Stay], number: int) -> Stay:
@@ -472,8 +526,9 @@ def stay_out(
 
 
 def lodging_overview(trip: Trip, db: Session) -> LodgingOverviewOut:
-    """Every stay with its choice, without Google details: no Google calls at all."""
-    stays = trip_stays(trip, db)
+    """Every night (in transit or not) and stay with its choice, without Google details: no Google calls at all."""
+    nights = trip_night_marks(trip, db)
+    stays = trip_stays(trip, db, nights)
     rows = choice_rows(trip, db)
     lodging_left = lodging_budget_left(trip, db)
     one_stay = len(stays) == 1
@@ -481,6 +536,7 @@ def lodging_overview(trip: Trip, db: Session) -> LodgingOverviewOut:
         trip_id=trip.id,
         currency=PLAN_CURRENCY,
         lodging_budget_left=lodging_left,
+        nights=[NightOut(date=night.date, in_transit=night.in_transit, set_by=night.set_by) for night in nights],
         stays=[stay_out(trip, stay, rows, lodging_left, one_stay) for stay in stays],
         # Choices for stays a regenerated plan no longer has: shown so they can be removed.
         earlier_choices=[

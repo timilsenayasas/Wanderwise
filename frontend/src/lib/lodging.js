@@ -69,15 +69,21 @@ export function stayIds(number) {
 }
 
 /**
- * A plan day's lodging, from GET /lodging's stays: the stay it sleeps in (`tonight`, none on the last
- * day: the trip ends) and, on a day the city changes, `move` = { from, to }. Dates are YYYY-MM-DD.
+ * A plan day's lodging, from GET /lodging (`lodging`: its nights and stays). Dates are YYYY-MM-DD.
+ *   night:    that night (in transit or not); none on the last day: the trip ends
+ *   tonight:  the stay it sleeps in; none when the night is in transit
+ *   checkOut: the city of a stay that ends this morning; checkIn: of one that starts today.
+ *             Not on the trip's first and last days, which are arriving and going home.
  */
-export function dayLodging(stays, date, lastDate) {
-  if (!stays?.length) return { tonight: null, move: null };
-  const tonight = date === lastDate ? null : stays.find((s) => s.check_in <= date && date < s.check_out) ?? null;
-  const index = stays.findIndex((s) => s.check_in === date);
-  const move = index > 0 ? { from: stays[index - 1].city, to: stays[index].city } : null;
-  return { tonight, move };
+export function dayLodging(lodging, date, firstDate, lastDate) {
+  if (!lodging) return { night: null, tonight: null, checkOut: null, checkIn: null };
+  const { nights = [], stays = [] } = lodging;
+  const night = date === lastDate ? null : nights.find((n) => n.date === date) ?? null;
+  const tonight =
+    date === lastDate || night?.in_transit ? null : stays.find((s) => s.check_in <= date && date < s.check_out) ?? null;
+  const checkOut = date === lastDate ? null : stays.find((s) => s.check_out === date)?.city ?? null;
+  const checkIn = date === firstDate ? null : stays.find((s) => s.check_in === date)?.city ?? null;
+  return { night, tonight, checkOut, checkIn };
 }
 
 /**

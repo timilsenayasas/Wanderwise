@@ -54,9 +54,18 @@ export function stayOut(overrides = {}) {
 }
 
 /** GET /lodging (and what PUT/DELETE answer with): the stays and their choices, without Google details. */
-export function overviewOf(stays, { lodging_budget_left = 1600, earlier_choices = [] } = {}) {
+export function overviewOf(stays, { lodging_budget_left = 1600, earlier_choices = [], nights = [] } = {}) {
   const withoutDetails = (stay) => ({ ...stay, choice: stay.choice && { ...stay.choice, hotel: null } });
-  return { trip_id: 7, currency: 'USD', lodging_budget_left, stays: stays.map(withoutDetails), earlier_choices };
+  return { trip_id: 7, currency: 'USD', lodging_budget_left, nights, stays: stays.map(withoutDetails), earlier_choices };
+}
+
+/** GET /lodging's nights: one per date, in transit when listed in `transit` (set by the plan unless `byYou`). */
+export function nightsOf(dates, transit = [], byYou = []) {
+  return dates.map((date) => ({
+    date,
+    in_transit: transit.includes(date),
+    set_by: byYou.includes(date) ? 'you' : 'plan',
+  }));
 }
 
 /** The overview a PUT answers with for a one-stay trip whose stay now has this choice. */

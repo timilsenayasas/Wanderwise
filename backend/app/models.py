@@ -7,7 +7,7 @@ Changing a table here? Create a migration afterwards (see README, "Database chan
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, false
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -133,6 +133,11 @@ class TripDay(Base):
     # Empty for plans saved before multi-city trips: those use the trip's destination.
     base_city: Mapped[str | None] = mapped_column(
         String(120), nullable=True
+    )
+    # The AI plan says this night is spent travelling (overnight flight, train, bus): no hotel.
+    # The traveler can override it per night (TripNightOverride), which outlives regenerating.
+    in_transit: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
     )
 
 
@@ -306,6 +311,31 @@ class TripLodging(Base):
         default=utcnow,
         onupdate=utcnow,
         nullable=False,
+    )
+
+
+class TripNightOverride(Base):
+    """The traveler's own say on whether a night is spent travelling ("I'm travelling this night").
+
+    Wins over the plan's mark either way, and is kept when the plan is regenerated.
+    """
+
+    __tablename__ = "trip_night_overrides"
+    __table_args__ = (UniqueConstraint("trip_id", "night_date", name="uq_trip_night_overrides_trip_night"),)
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True
+    )
+    trip_id: Mapped[int] = mapped_column(
+        ForeignKey("trips.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    night_date: Mapped[date] = mapped_column(
+        nullable=False
+    )
+    in_transit: Mapped[bool] = mapped_column(
+        Boolean, nullable=False
     )
 
 

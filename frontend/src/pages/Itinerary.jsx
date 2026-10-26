@@ -51,7 +51,9 @@ export default function Itinerary() {
   const autoGenerate = useRef(Boolean(location.state?.generate));
   const regenerateRef = useRef(null);
   // Where the traveler sleeps each night (GET /lodging: no Google calls), for the day cards.
-  const [stays, setStays] = useState(null);
+  const [lodging, setLodging] = useState(null);
+  // Bumped when a night is switched here, so the Stay tab (if open) reloads its stays.
+  const [nightsVersion, setNightsVersion] = useState(0);
 
   // Asked again each time the Itinerary shows a plan, so a choice just made on the Stay tab shows up.
   // It's only extra detail: if it fails, the days just don't say where you sleep.
@@ -62,15 +64,22 @@ export default function Itinerary() {
     api
       .get(`/trips/${tripId}/lodging`)
       .then((overview) => {
-        if (!cancelled) setStays(overview.stays);
+        if (!cancelled) setLodging(overview);
       })
       .catch(() => {
-        if (!cancelled) setStays(null);
+        if (!cancelled) setLodging(null);
       });
     return () => {
       cancelled = true;
     };
   }, [showingPlan, plan, tripId]);
+
+  // "I'm travelling this night" (true/false), or null to go back to the plan's say.
+  async function setNight(date, inTransit) {
+    const path = `/trips/${tripId}/nights/${date}`;
+    setLodging(inTransit === null ? await api.delete(path) : await api.put(path, { in_transit: inTransit }));
+    setNightsVersion((version) => version + 1);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -283,7 +292,12 @@ export default function Itinerary() {
               )}
               {planning && <p className="text-muted trip-page__wait">Planning a new version. This usually takes 5 to 20 seconds.</p>}
 
-              <ItineraryView itinerary={plan} stays={stays} onShowStay={() => showTab('stay')} />
+              <ItineraryView
+                itinerary={plan}
+                lodging={lodging}
+                onShowStay={() => showTab('stay')}
+                onSetNight={setNight}
+              />
             </section>
           )}
         </TabPanel>
@@ -305,7 +319,7 @@ export default function Itinerary() {
               }
             >
               <Suspense fallback={<Spinner size="lg" label="Loading where to stay" />}>
-                <WhereToStay key={trip.id} trip={trip} />
+                <WhereToStay key={trip.id} trip={trip} nightsVersion={nightsVersion} />
               </Suspense>
             </ErrorBoundary>
           )}
