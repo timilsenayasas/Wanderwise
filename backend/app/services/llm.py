@@ -63,6 +63,10 @@ Accessibility needs: {", ".join(trip.accessibility_needs) or "None"}
 REQUIREMENTS
 - Cover every date from the start date through the end date.
 - Do not create overlapping activities.
+- Do not repeat the same sightseeing attraction, landmark, museum, or named activity across different days.
+- Each day should feature unique attractions and experiences.
+- Repeated meal categories and necessary transportation are allowed, but avoid recommending the same named restaurant unnecessarily.
+- If an attraction requires multiple visits, clearly explain why the repeat is necessary.
 - Reflect the traveler's interests throughout the itinerary.
 - Include at least one meal suggestion per day.
 - Give every activity a start time (24-hour HH:MM) and duration.
@@ -104,6 +108,36 @@ Use exactly this JSON structure:
 """.strip()
 
 
+
+def find_duplicate_activities(itinerary: ItineraryResponse) -> list[str]:
+    """Find repeated named attractions across different itinerary days."""
+
+    seen = {}
+    duplicates = []
+
+    excluded_categories = {"meal", "transportation"}
+
+    for day in itinerary.days:
+        for activity in day.activities:
+            category = activity.category.strip().lower()
+
+            if category in excluded_categories:
+                continue
+
+            name = " ".join(activity.name.casefold().split())
+            location = " ".join(activity.location.casefold().split())
+
+            key = (name, location)
+
+            if key in seen and seen[key] != day.date:
+                duplicates.append(activity.name)
+            else:
+                seen[key] = day.date
+
+    return duplicates
+
+
+
 def build_cache_key(trip: TripPlanRequest) -> str:
     """Create a consistent cache key from the trip request."""
 
@@ -116,11 +150,11 @@ def _remember(cache_key: str, itinerary: ItineraryResponse) -> None:
     while len(itinerary_cache) > CACHE_MAX_ENTRIES:
         itinerary_cache.popitem(last=False)  # drop the oldest
 
-
 def generate_itinerary(trip: TripPlanRequest, use_cache: bool = True) -> ItineraryResponse:
     """Generate an itinerary with Gemini and validate the JSON response.
 
     use_cache=False always asks Gemini (e.g. "Regenerate" wants a different plan).
+    If repeated attractions are detected, retry generation once.
     """
 
     cache_key = build_cache_key(trip)
@@ -133,69 +167,94 @@ def generate_itinerary(trip: TripPlanRequest, use_cache: bool = True) -> Itinera
     logger.info("LLM cache miss")
 
     prompt = build_itinerary_prompt(trip)
+    max_attempts = 2
 
     client = get_gemini_client()
 
-    start_time = time.perf_counter()
+    for attempt in range(max_attempts):
+        start_time = time.perf_counter()
 
-    try:
-        response = client.models.generate_content(
-            model=GEMINI_MODEL,
-            contents=prompt,
-            config={
-                "response_mime_type": "application/json",
-            },
+        try:
+            response = client.models.generate_content(
+                model=GEMINI_MODEL,
+                contents=prompt,
+                config={
+                    "response_mime_type": "application/json",
+                },
+            )
+
+        except errors.ServerError as exc:
+            latency = time.perf_counter() - start_time
+            logger.warning(f"LLM request failed after {latency:.2f} seconds")
+            raise LLMServiceError(
+                "The itinerary service is temporarily unavailable. Please retry."
+            ) from exc
+
+        except errors.APIError as exc:
+            latency = time.perf_counter() - start_time
+            logger.warning(f"LLM request failed after {latency:.2f} seconds")
+            raise LLMServiceError(
+                "The itinerary service could not complete the request. Please retry."
+            ) from exc
+
+        except TimeoutError as exc:
+            latency = time.perf_counter() - start_time
+            logger.warning(f"LLM request timed out after {latency:.2f} seconds")
+            raise LLMServiceError(
+                "The itinerary request timed out. Please retry."
+            ) from exc
+
+        latency = time.perf_counter() - start_time
+        logger.info(f"LLM latency: {latency:.2f} seconds")
+
+        if response.usage_metadata:
+            usage = response.usage_metadata
+            logger.info(f"LLM input tokens: {usage.prompt_token_count}")
+            logger.info(f"LLM output tokens: {usage.candidates_token_count}")
+            logger.info(f"LLM total tokens: {usage.total_token_count}")
+
+        if not response.text:
+            raise LLMServiceError(
+                "The itinerary service returned an empty response. Please retry."
+            )
+
+        try:
+            response_data = json.loads(response.text)
+        except json.JSONDecodeError as exc:
+            raise LLMServiceError(
+                "The itinerary service returned invalid data. Please retry."
+            ) from exc
+
+        try:
+            itinerary = ItineraryResponse.model_validate(response_data)
+        except ValidationError as exc:
+            raise LLMServiceError(
+                "The itinerary service returned an invalid itinerary. Please retry."
+            ) from exc
+
+        duplicates = find_duplicate_activities(itinerary)
+
+        if not duplicates:
+            _remember(cache_key, itinerary)
+            return itinerary
+
+        logger.warning(
+            "Generated itinerary contains repeated activities (attempt %s/%s): %s",
+            attempt + 1,
+            max_attempts,
+            ", ".join(duplicates),
         )
 
-    except errors.ServerError as exc:
-        latency = time.perf_counter() - start_time
-        logger.warning(f"LLM request failed after {latency:.2f} seconds")
-        raise LLMServiceError(
-            "The itinerary service is temporarily unavailable. Please retry."
-        ) from exc
+        if attempt < max_attempts - 1:
+            prompt = (
+                build_itinerary_prompt(trip)
+                + "\n\nIMPORTANT: Your previous itinerary repeated these attractions "
+                + "across different days: "
+                + ", ".join(duplicates)
+                + ". Generate a new itinerary with unique attractions on each day. "
+                + "Do not repeat these attractions across multiple days."
+            )
 
-    except errors.APIError as exc:
-        latency = time.perf_counter() - start_time
-        logger.warning(f"LLM request failed after {latency:.2f} seconds")
-        raise LLMServiceError(
-            "The itinerary service could not complete the request. Please retry."
-        ) from exc
-
-    except TimeoutError as exc:
-        latency = time.perf_counter() - start_time
-        logger.warning(f"LLM request timed out after {latency:.2f} seconds")
-        raise LLMServiceError(
-            "The itinerary request timed out. Please retry."
-        ) from exc
-
-    latency = time.perf_counter() - start_time
-    logger.info(f"LLM latency: {latency:.2f} seconds")
-
-    if response.usage_metadata:
-        usage = response.usage_metadata
-        logger.info(f"LLM input tokens: {usage.prompt_token_count}")
-        logger.info(f"LLM output tokens: {usage.candidates_token_count}")
-        logger.info(f"LLM total tokens: {usage.total_token_count}")
-
-    if not response.text:
-        raise LLMServiceError(
-            "The itinerary service returned an empty response. Please retry."
-        )
-
-    try:
-        response_data = json.loads(response.text)
-    except json.JSONDecodeError as exc:
-        raise LLMServiceError(
-            "The itinerary service returned invalid data. Please retry."
-        ) from exc
-
-    try:
-        itinerary = ItineraryResponse.model_validate(response_data)
-    except ValidationError as exc:
-        raise LLMServiceError(
-            "The itinerary service returned an invalid itinerary. Please retry."
-        ) from exc
-
-    _remember(cache_key, itinerary)
-
-    return itinerary
+    raise LLMServiceError(
+        "The generated itinerary contains repeated attractions. Please regenerate."
+    )
