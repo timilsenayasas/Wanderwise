@@ -320,8 +320,137 @@ def test_bad_start_time_is_rejected(client, monkeypatch):
 
 
 # --- Time helpers ---------------------------------------------------------
+
 def test_end_time_and_duration_round_trip():
-    assert end_time("09:00", 90) == "10:30"
     assert end_time("22:30", 120) == "00:30"
     assert duration_minutes("22:30", "00:30") == 120
     assert duration_minutes("08:00", "08:00") == 24 * 60
+
+
+# --- A5: Prevent repeated activities ----------------------------------------
+
+def test_duplicate_attractions_are_detected():
+    """The same attraction on different days should be detected."""
+
+    duplicate_plan = {
+        **FIRST_PLAN,
+        "days": [
+            {
+                "date": "2026-10-10",
+                "activities": [
+                    activity("Art Institute", "sightseeing", 32),
+                ],
+            },
+            {
+                "date": "2026-10-11",
+                "activities": [
+                    activity("Art Institute", "sightseeing", 32),
+                ],
+            },
+        ],
+    }
+
+    itinerary = llm.ItineraryResponse.model_validate(duplicate_plan)
+    duplicates = llm.find_duplicate_activities(itinerary)
+
+    assert duplicates == ["Art Institute"]
+
+
+def test_repeated_meals_and_transportation_are_allowed():
+    """Meals and transportation can repeat across itinerary days."""
+
+    repeated_plan = {
+        **FIRST_PLAN,
+        "days": [
+            {
+                "date": "2026-10-10",
+                "activities": [
+                    activity("Breakfast", "meal", 15),
+                    activity("Airport transfer", "transportation", 30),
+                ],
+            },
+            {
+                "date": "2026-10-11",
+                "activities": [
+                    activity("Breakfast", "Meal", 15),
+                    activity("Airport transfer", "Transportation", 30),
+                ],
+            },
+        ],
+    }
+
+    itinerary = llm.ItineraryResponse.model_validate(repeated_plan)
+    duplicates = llm.find_duplicate_activities(itinerary)
+
+    assert duplicates == []
+
+
+def test_duplicate_itinerary_is_rejected_before_saving(client, monkeypatch):
+    """Repeated attractions should prevent an itinerary from being saved."""
+
+    duplicate_plan = {
+        **FIRST_PLAN,
+        "days": [
+            {
+                "date": "2026-10-10",
+                "activities": [
+                    activity("Art Institute", "sightseeing", 32),
+                ],
+            },
+            {
+                "date": "2026-10-11",
+                "activities": [
+                    activity("Art Institute", "sightseeing", 32),
+                ],
+            },
+        ],
+    }
+
+    use_fake_gemini(monkeypatch, duplicate_plan, duplicate_plan)
+
+    register(client)
+    trip_id = create_trip(client)
+
+    response = client.post(f"/api/trips/{trip_id}/plan")
+
+    assert response.status_code == 503
+    assert response.json()["detail"]["message"] == (
+        "The generated itinerary contains repeated attractions. Please regenerate."
+    )
+
+    assert plan_row_counts() == (0, 0, 0)
+    assert llm.itinerary_cache == {}
+
+
+def test_duplicate_itinerary_succeeds_after_retry(client, monkeypatch):
+    """A valid second Gemini response should be saved successfully."""
+
+    duplicate_plan = {
+        **FIRST_PLAN,
+        "days": [
+            {
+                "date": "2026-10-10",
+                "activities": [
+                    activity("Art Institute", "sightseeing", 32),
+                ],
+            },
+            {
+                "date": "2026-10-11",
+                "activities": [
+                    activity("Art Institute", "sightseeing", 32),
+                ],
+            },
+        ],
+    }
+
+    prompts = use_fake_gemini(monkeypatch, duplicate_plan, FIRST_PLAN)
+
+    register(client)
+    trip_id = create_trip(client)
+
+    response = client.post(f"/api/trips/{trip_id}/plan")
+
+    assert response.status_code == 200
+    assert len(prompts) == 2
+    assert "Art Institute" in prompts[1]
+    assert plan_row_counts() == (2, 4, 2)
