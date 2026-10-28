@@ -348,3 +348,21 @@ describe('Trip map fallbacks', () => {
     expect(stopList().getAllByRole('button')).toHaveLength(3);
   });
 });
+
+describe('Hotels of a split stay', () => {
+  const SPLIT_PINS = [
+    { stay_number: 1, city: 'Kathmandu, Nepal', part: 1, parts: 2, latitude: 27.71, longitude: 85.32 },
+    { stay_number: 2, city: 'Kathmandu, Nepal', part: 2, parts: 2, latitude: 27.72, longitude: 85.31 },
+  ];
+
+  it('names each part, so two hotels in one town can be told apart', async () => {
+    api.get.mockResolvedValue(SPLIT_PINS);
+    render(<TripMap plan={PLAN} tripId={7} />);
+
+    expect(await screen.findByRole('button', { name: 'Marker Your hotel · Kathmandu (part 1)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Marker Your hotel · Kathmandu (part 2)' })).toBeInTheDocument();
+    expect(
+      stopList().getByRole('button', { name: "Your hotel · Kathmandu (part 2), where you're staying in Kathmandu, Nepal (part 2)" }),
+    ).toBeInTheDocument();
+  });
+});

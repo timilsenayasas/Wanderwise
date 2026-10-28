@@ -32,13 +32,19 @@ const HOTEL_LABEL = 'Your hotel';
 const isHotel = (place) => place?.kind === 'hotel';
 
 /** "Your hotel", or with the town when there are several: "Your hotel · Chitwan". */
+/** " (part 2)" for a split stay's pin, so two hotels in one town can be told apart. */
+function partText(pin) {
+  return pin.part ? ` (part ${pin.part})` : '';
+}
+
 function hotelPins(pins) {
   return pins.map((pin) => ({
     // Stops have numeric ids, so these can't clash with one.
     id: `hotel-${pin.stay_number}`,
     kind: 'hotel',
     city: pin.city,
-    name: pins.length > 1 ? `${HOTEL_LABEL} · ${pin.city.split(',')[0]}` : HOTEL_LABEL,
+    part: pin.part,
+    name: pins.length > 1 ? `${HOTEL_LABEL} · ${pin.city.split(',')[0]}${partText(pin)}` : HOTEL_LABEL,
     position: { lat: pin.latitude, lng: pin.longitude },
   }));
 }
@@ -247,7 +253,7 @@ function MapView({ stops, hotels, places, selected, onSelect, mapId }) {
 
 /** "where you're staying", with the city when the trip has more than one stay's hotel. */
 function whereText(hotel, hotels) {
-  return hotels.length > 1 ? `where you're staying in ${hotel.city}` : "where you're staying";
+  return hotels.length > 1 ? `where you're staying in ${hotel.city}${partText(hotel)}` : "where you're staying";
 }
 
 const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);

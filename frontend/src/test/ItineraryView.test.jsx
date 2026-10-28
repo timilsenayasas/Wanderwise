@@ -280,3 +280,57 @@ describe('A hotel booked for fewer nights than its stay', () => {
     expect(day(4)).toHaveTextContent('Tonight: Tiger Camp');
   });
 });
+
+describe('A split stay: one city, two hotels', () => {
+  /** Kathmandu Nov 5 – 9, split on Nov 7: part 1 (Nov 5 – 7) and part 2 (Nov 7 – 9). */
+  function splitKathmandu(first = {}, second = {}) {
+    return {
+      nights: nightsOf(NIGHTS),
+      stays: [
+        stayOut({ number: 1, city: KATHMANDU, check_out: '2026-11-07', nights: 2, part: 1, parts: 2, ...first }),
+        stayOut({
+          number: 2,
+          city: KATHMANDU,
+          check_in: '2026-11-07',
+          check_out: '2026-11-09',
+          nights: 2,
+          part: 2,
+          parts: 2,
+          merge_night: '2026-11-07',
+          ...second,
+        }),
+      ],
+    };
+  }
+
+  const moves = (number) =>
+    within(day(number))
+      .queryAllByRole('listitem')
+      .filter((item) => item.closest('ul')?.getAttribute('aria-label') === 'Moving on today')
+      .map((item) => item.textContent.replace(/\s+/g, ' '));
+
+  it('says "change hotels" on the switch day, by name, and each night has its own hotel', () => {
+    const lodging = splitKathmandu({ choice: hotelChoice('p1', 35, 2) }, { choice: ownChoice('Yak & Yeti', 120, 2) });
+    render(<ItineraryView itinerary={PLAN} lodging={lodging} hotelNames={new Map([['p1', 'Hotel Thamel']])} />);
+
+    expect(moves(3)).toEqual([`Change hotels in ${KATHMANDU}: check out of Hotel Thamel, check in to Yak & Yeti`]);
+    expect(day(2)).toHaveTextContent('Tonight: Hotel Thamel');
+    expect(day(3)).toHaveTextContent('Tonight: Yak & Yeti');
+    expect(moves(1)).toEqual([]);
+    expect(moves(5)).toEqual([]); // going home: no check-out line, as before
+  });
+
+  it('says which part when a name is not known, or nothing is chosen', () => {
+    render(<ItineraryView itinerary={PLAN} lodging={splitKathmandu({ choice: hotelChoice('p1', 35, 2) })} />);
+
+    expect(moves(3)).toEqual([
+      `Change hotels in ${KATHMANDU}: check out of your part 1 hotel, check in to part 2 (no hotel chosen yet)`,
+    ]);
+  });
+
+  it('still says check out and check in on a day the city really changes', () => {
+    render(<ItineraryView itinerary={PLAN} lodging={twoStays()} />);
+
+    expect(moves(3)).toEqual([`Check out: ${KATHMANDU}`, `Check in: ${CHITWAN}`]);
+  });
+});

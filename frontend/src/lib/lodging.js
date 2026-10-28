@@ -76,14 +76,27 @@ export function stayIds(number) {
  *             Not on the trip's first and last days, which are arriving and going home.
  */
 export function dayLodging(lodging, date, firstDate, lastDate) {
-  if (!lodging) return { night: null, tonight: null, checkOut: null, checkIn: null };
+  const none = { night: null, tonight: null, checkOut: null, checkIn: null, leaving: null, arriving: null };
+  if (!lodging) return none;
   const { nights = [], stays = [] } = lodging;
   const night = date === lastDate ? null : nights.find((n) => n.date === date) ?? null;
   const tonight =
     date === lastDate || night?.in_transit ? null : stays.find((s) => s.check_in <= date && date < s.check_out) ?? null;
-  const checkOut = date === lastDate ? null : stays.find((s) => s.check_out === date)?.city ?? null;
-  const checkIn = date === firstDate ? null : stays.find((s) => s.check_in === date)?.city ?? null;
-  return { night, tonight, checkOut, checkIn };
+  // The stays themselves too (leaving, arriving): a split's two parts are the same city.
+  const leaving = date === lastDate ? null : stays.find((s) => s.check_out === date) ?? null;
+  const arriving = date === firstDate ? null : stays.find((s) => s.check_in === date) ?? null;
+  return { night, tonight, checkOut: leaving?.city ?? null, checkIn: arriving?.city ?? null, leaving, arriving };
+}
+
+/**
+ * A stay's hotel for "check out of … / check in to …" on a split's switch day: Google's name when this
+ * visit has it, their own hotel's name, else "your part 2 hotel" (or "part 2" with nothing chosen).
+ */
+export function stayHotelLabel(stay, names) {
+  const { choice } = stay;
+  if (choice?.choice === 'own') return choice.custom_name;
+  if (choice?.choice === 'hotel') return names?.get(choice.place_id) ?? `your part ${stay.part} hotel`;
+  return `part ${stay.part} (no hotel chosen yet)`;
 }
 
 /**

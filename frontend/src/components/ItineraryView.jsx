@@ -3,7 +3,7 @@ import Button from './Button';
 import Card from './Card';
 import Icon from './Icon';
 import { formatCurrency } from '../lib/format';
-import { dayLodging, tonightText } from '../lib/lodging';
+import { dayLodging, stayHotelLabel, tonightText } from '../lib/lodging';
 import './ItineraryView.css';
 
 /**
@@ -88,7 +88,14 @@ export default function ItineraryView({ itinerary, budget, lodging, hotelNames, 
 
       <ol className="itinerary__days">
         {days.map((day, i) => {
-          const { night, tonight, checkOut, checkIn } = dayLodging(lodging, day.date, firstDate, lastDate);
+          const { night, tonight, checkOut, checkIn, leaving, arriving } = dayLodging(
+            lodging,
+            day.date,
+            firstDate,
+            lastDate,
+          );
+          // A split's switch day: same city, another hotel.
+          const changeHotels = Boolean(leaving && arriving?.merge_night === day.date);
           return (
             <li key={day.date}>
               <Card as="section" padding="md" aria-labelledby={`day-${i}`}>
@@ -97,8 +104,17 @@ export default function ItineraryView({ itinerary, budget, lodging, hotelNames, 
                 </h3>
                 {(checkOut || checkIn) && (
                   <ul className="itinerary__move" aria-label="Moving on today">
-                    {checkOut && <li>Check out: {checkOut}</li>}
-                    {checkIn && <li>Check in: {checkIn}</li>}
+                    {changeHotels ? (
+                      <li>
+                        Change hotels in {arriving.city}: check out of {stayHotelLabel(leaving, hotelNames)}, check in
+                        to {stayHotelLabel(arriving, hotelNames)}
+                      </li>
+                    ) : (
+                      <>
+                        {checkOut && <li>Check out: {checkOut}</li>}
+                        {checkIn && <li>Check in: {checkIn}</li>}
+                      </>
+                    )}
                   </ul>
                 )}
                 <ol className="itinerary__activities">
