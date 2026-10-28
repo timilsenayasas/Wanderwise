@@ -15,6 +15,7 @@ import HotelCard, { HotelCardSkeleton } from './HotelCard';
 import Icon from './Icon';
 import OwnHotelForm from './OwnHotelForm';
 import StayChoice from './StayChoice';
+import StayParts from './StayParts';
 import { formatCurrency, formatDateRange } from '../lib/format';
 import {
   choiceName,
@@ -36,7 +37,9 @@ export function StayHeader({ trip, nights, lodgingLeft, action }) {
   return (
     <header className="stay__header">
       <div className="stay__heading">
-        <h2 id="stay-title">Where to stay in {trip.destination}</h2>
+        <h2 id="stay-title" tabIndex={-1}>
+          Where to stay in {trip.destination}
+        </h2>
         <p className="stay__facts">
           {formatDateRange(trip.start_date, trip.end_date)} · {nightsText(nights)}
           {lodgingLeft !== undefined && <> · {lodgingLeftText(lodgingLeft)}</>}
@@ -67,10 +70,12 @@ export function SuggestionSkeletons({ count = SKELETON_COUNT, destination }) {
 export default function StaySection({
   trip,
   stay,
+  previousStay,
   lodgingLeft,
   oneStay,
   open,
   onToggle,
+  onOpenSection,
   onOverview,
   onHotelNames,
   announce,
@@ -92,11 +97,15 @@ export default function StaySection({
   const [focusTarget, setFocusTarget] = useState(null); // element id to focus after the next render
   const latestRequest = useRef(0);
   const choice = stay.choice;
+  // Read when searching, not a dependency: a split elsewhere renumbers this stay, and that alone
+  // mustn't search it again (billed).
+  const stayNumber = useRef(stay.number);
+  stayNumber.current = stay.number;
 
   const load = useCallback(
     async ({ fresh = false } = {}) => {
       const request = ++latestRequest.current;
-      const path = `/trips/${trip.id}/lodging/stays/${stay.number}`;
+      const path = `/trips/${trip.id}/lodging/stays/${stayNumber.current}`;
       if (fresh) setRefreshing(true);
       else setStatus('loading');
       setRefreshError('');
@@ -120,7 +129,7 @@ export default function StaySection({
         if (fresh && request === latestRequest.current) setRefreshing(false);
       }
     },
-    [trip.id, stay.number, announce, onHotelNames],
+    [trip.id, announce, onHotelNames],
   );
 
   // Search once the section has been opened; closing and reopening it doesn't search again (only Refresh does).
@@ -149,7 +158,7 @@ export default function StaySection({
   }, [focusTarget, reducedMotion, ids.choiceTitle]);
 
   // Another stay's choice changes what's left for this one: judge the suggestions against it now.
-  const { suggestions, fitNote } = page ? rescore(page, stay.budget_left) : { suggestions: [], fitNote: null };
+  const { suggestions, fitNote } = page ? rescore(page, stay) : { suggestions: [], fitNote: null };
   // Google's details for the chosen hotel: from this section's search (the overview has none).
   const pageHotel = page?.stay.choice?.place_id === choice?.place_id ? page?.stay.choice?.hotel : null;
   const shown = choice ? { ...choice, hotel: choice.hotel ?? pageHotel } : null;
@@ -270,6 +279,17 @@ export default function StaySection({
       </Card>
     ) : (
       <>
+        <StayParts
+          trip={trip}
+          stay={stay}
+          previousStay={previousStay}
+          level={level + 1}
+          hotel={chosenHotel}
+          onOverview={onOverview}
+          onOpenSection={onOpenSection}
+          announce={announce}
+        />
+
         {stay.plan_changed && (
           <p className="stay__note stay__note--none_fit">
             Your plan changed: this choice was made for {stay.choice_city}. Check it still suits your stay in{' '}
@@ -387,6 +407,7 @@ export default function StaySection({
 
   const pill = stayStatus(stay);
   const when = `${formatDateRange(stay.check_in, stay.check_out)} · ${nightsText(stay.nights)}`;
+  const partOf = stay.part ? `part ${stay.part} of ${stay.parts}` : null; // one city, more than one hotel
   return (
     <section className={`stay-section ${open ? 'stay-section--open' : ''}`} aria-labelledby={ids.section}>
       <h3 className="stay-section__heading">
@@ -397,11 +418,14 @@ export default function StaySection({
           aria-expanded={open}
           aria-controls={ids.body}
           // Spelled out: the parts below would otherwise run together ("Chitwan, NepalNov 7").
-          aria-label={`${stay.city}, ${when}: ${pill.text}`}
+          aria-label={`${stay.city}${partOf ? `, ${partOf}` : ''}, ${when}: ${pill.text}`}
           onClick={onToggle}
         >
           <span className="stay-section__where">
-            <span className="stay-section__city">{stay.city}</span>
+            <span className="stay-section__city">
+              {stay.city}
+              {partOf && <span className="stay-section__part"> · {partOf}</span>}
+            </span>
             <span className="stay-section__when">{when}</span>
           </span>
           <span className={`stay-status stay-status--${pill.kind}`}>{pill.text}</span>

@@ -125,13 +125,27 @@ export function budgetFit(total, left) {
 }
 
 /**
- * A stay's suggestions judged against what's left for it now. Choosing a hotel for another stay
- * changes that, and searching again just to re-score would be billed, so the fit, order, best fit
- * and note are worked out here the way the server does it. Unchanged budget: the server's answer.
+ * Which section a stay is, kept while stays are renumbered (a split moves the later ones up),
+ * so their hotels aren't searched again. A stay's city and first night don't change in a split.
  */
-export function rescore(page, left) {
-  if (left === page.stay.budget_left) return { suggestions: page.suggestions, fitNote: page.fit_note };
-  const scored = page.suggestions.map((hotel) => ({ ...hotel, fit: budgetFit(hotel.stay_total, left), best_fit: false }));
+export function stayKey(stay) {
+  return `${stay.city}|${stay.check_in}`;
+}
+
+/**
+ * A stay's suggestions judged against the stay as it is now. Choosing a hotel for another stay
+ * changes what's left for it, and splitting or merging changes its nights; searching again just
+ * to re-score would be billed, so totals, fit, order, best fit and note are worked out here the way
+ * the server does it. Nothing changed: the server's answer.
+ */
+export function rescore(page, stay) {
+  const left = stay.budget_left;
+  const sameNights = stay.nights === page.stay.nights;
+  if (left === page.stay.budget_left && sameNights) return { suggestions: page.suggestions, fitNote: page.fit_note };
+  const scored = page.suggestions.map((hotel) => {
+    const total = sameNights || hotel.nightly_estimate == null ? hotel.stay_total : stayTotal(hotel.nightly_estimate, stay.nights);
+    return { ...hotel, stay_total: total, fit: budgetFit(total, left), best_fit: false };
+  });
   if (left != null) {
     const order = (fit) => FIT_ORDER[fit] ?? 3;
     scored.sort(

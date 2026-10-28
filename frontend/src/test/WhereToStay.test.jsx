@@ -1,5 +1,5 @@
 import { StrictMode } from 'react';
-import { render, screen, waitFor, within } from '@testing-library/react';
+import { cleanup, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
@@ -702,5 +702,176 @@ describe('A night switched on the Itinerary', () => {
     await waitFor(() => expect(api.get.mock.calls.filter(([path]) => path === '/trips/7/lodging')).toHaveLength(2));
     expect(screen.getByRole('article', { name: 'The Drake' })).toBeVisible(); // no loading flash, same stay
     expect(api.get.mock.calls.filter(([path]) => path.includes('/stays/'))).toHaveLength(1);
+  });
+});
+
+describe('Splitting a stay and merging it back', () => {
+  const TIGER = suggestion('t1', 'Tiger Lodge', 90);
+  const YAK = suggestion('y1', 'Yak Hotel', 120);
+  const page = (stay, suggestions = [DRAKE, LUX]) => ({
+    trip_id: 7,
+    currency: 'USD',
+    lodging_budget_left: 1600,
+    stay,
+    suggestions,
+    suggestions_status: 'ok',
+    fit_note: null,
+  });
+
+  /** Chicago, Nov 5 – 9, split on Nov 7 into two 2-night parts. */
+  function twoParts(first = {}, second = {}) {
+    const stays = [
+      stayOut({ check_out: '2026-11-07', nights: 2, part: 1, parts: 2, can_split: true, ...first }),
+      stayOut({
+        number: 2,
+        check_in: '2026-11-07',
+        nights: 2,
+        part: 2,
+        parts: 2,
+        merge_night: '2026-11-07',
+        can_split: true,
+        ...second,
+      }),
+    ];
+    return { overview: overviewOf(stays), pages: { 1: page(stays[0]), 2: page(stays[1], [TIGER]) } };
+  }
+
+  const searches = () => api.get.mock.calls.map(([path]) => path).filter((path) => path.includes('/stays/'));
+  const part = (n) => screen.getByRole('button', { name: new RegExp(`^Chicago, IL, part ${n} of 2`) });
+
+  async function openParts(scenario) {
+    mockLodging(api, scenario);
+    render(<WhereToStay trip={STAY_TRIP} />);
+    await userEvent.click(await screen.findByRole('button', { name: /^Chicago, IL, part 2 of 2/ }));
+    await screen.findByRole('article', { name: 'Tiger Lodge' });
+  }
+
+  it('splits a stay on the night I pick, keeping my choice for the first part', async () => {
+    const whole = stayOut({ can_split: true, choice: ownChoice('Lake House', 80, 4) });
+    mockLodging(api, { overview: overviewOf([whole]), pages: { 1: page(whole) } });
+    render(<WhereToStay trip={STAY_TRIP} />);
+    await screen.findByRole('article', { name: 'The Drake' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Split this stay' }));
+
+    const options = screen.getAllByRole('radio');
+    expect(options.map((option) => option.closest('label').textContent)).toEqual([
+      'Fri, Nov 6: 1 night + 3 nights',
+      'Sat, Nov 7: 2 nights + 2 nights',
+      'Sun, Nov 8: 3 nights + 1 night',
+    ]);
+    expect(options[1]).toBeChecked();
+    expect(options[1]).toHaveFocus();
+    expect(screen.getByText(/Lake House will be set to 2 nights \(\$160\), and its Lodging line with it\./)).toBeInTheDocument();
+
+    const after = twoParts({ choice: ownChoice('Lake House', 80, 2) });
+    api.put.mockResolvedValue(after.overview);
+    mockLodging(api, after);
+    await userEvent.click(screen.getByRole('button', { name: 'Split' }));
+
+    expect(api.put).toHaveBeenCalledWith('/trips/7/splits/2026-11-07');
+    expect(await screen.findByRole('article', { name: 'Tiger Lodge' })).toBeVisible(); // part 2 opened and searched
+    expect(part(1)).toHaveAttribute('aria-expanded', 'true');
+    await waitFor(() => expect(part(2)).toHaveFocus());
+    expect(announced()).toMatch(/chicago, il is now two stays: 2 nights and 2 nights\. lake house is now set to 2 nights/i);
+    // Part 1 kept its hotels (no new search), re-totalled for its 2 nights.
+    expect(searches()).toEqual(['/trips/7/lodging/stays/1', '/trips/7/lodging/stays/2']);
+    expect(within(card('The Drake')).getByText('$280 total, 2 nights')).toBeInTheDocument();
+  });
+
+  it("keeps later stays open with their hotels when they're renumbered, without searching again", async () => {
+    const KTM = 'Kathmandu, Nepal';
+    const CHT = 'Chitwan, Nepal';
+    const kathmandu = stayOut({ city: KTM, check_out: '2026-11-08', nights: 3, can_split: true });
+    const chitwan = stayOut({ number: 2, city: CHT, check_in: '2026-11-08', nights: 1 });
+    mockLodging(api, { overview: overviewOf([kathmandu, chitwan]), pages: { 1: page(kathmandu), 2: page(chitwan, [TIGER]) } });
+    render(<WhereToStay trip={STAY_TRIP} />);
+    await screen.findByRole('article', { name: 'The Drake' });
+    await userEvent.click(screen.getByRole('button', { name: /^Chitwan, Nepal/ }));
+    await screen.findByRole('article', { name: 'Tiger Lodge' }); // Chitwan opened: stay 2
+
+    // Split Kathmandu after its first night: Chitwan becomes stay 3.
+    const after = [
+      stayOut({ city: KTM, check_out: '2026-11-06', nights: 1, part: 1, parts: 2 }),
+      stayOut({ number: 2, city: KTM, check_in: '2026-11-06', check_out: '2026-11-08', nights: 2, part: 2, parts: 2, merge_night: '2026-11-06' }),
+      stayOut({ number: 3, city: CHT, check_in: '2026-11-08', nights: 1 }),
+    ];
+    api.put.mockResolvedValue(overviewOf(after));
+    mockLodging(api, { overview: overviewOf(after), pages: { 1: page(after[0]), 2: page(after[1], [YAK]), 3: page(after[2], [TIGER]) } });
+    await userEvent.click(screen.getByRole('button', { name: 'Split this stay' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Split' }));
+
+    expect(api.put).toHaveBeenCalledWith('/trips/7/splits/2026-11-06');
+    expect(await screen.findByRole('article', { name: 'Yak Hotel' })).toBeVisible(); // the new part
+    expect(screen.getByRole('article', { name: 'Tiger Lodge' })).toBeVisible(); // Chitwan: still open
+    // Kathmandu, Chitwan (as stay 2), then the new part (stay 2 now): Chitwan was never searched as stay 3.
+    expect(searches()).toEqual(['/trips/7/lodging/stays/1', '/trips/7/lodging/stays/2', '/trips/7/lodging/stays/2']);
+  });
+
+  it("shows why a split can't be made", async () => {
+    const whole = stayOut({ can_split: true });
+    mockLodging(api, { overview: overviewOf([whole]), pages: { 1: page(whole) } });
+    render(<WhereToStay trip={STAY_TRIP} />);
+    await screen.findByRole('article', { name: 'The Drake' });
+    api.put.mockRejectedValue(new ApiError('A trip can have at most 6 stays, counting split ones.', 422));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Split this stay' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Split' }));
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('A trip can have at most 6 stays, counting split ones.');
+  });
+
+  it("cancelling a split puts focus back, and a stay that can't be split has no button", async () => {
+    const whole = stayOut({ can_split: true });
+    mockLodging(api, { overview: overviewOf([whole]), pages: { 1: page(whole) } });
+    render(<WhereToStay trip={STAY_TRIP} />);
+    await screen.findByRole('article', { name: 'The Drake' });
+
+    await userEvent.click(screen.getByRole('button', { name: 'Split this stay' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Split this stay' })).toHaveFocus();
+    expect(api.put).not.toHaveBeenCalled();
+
+    cleanup();
+    await openWith(); // can_split is false
+    expect(screen.queryByRole('button', { name: 'Split this stay' })).toBeNull();
+  });
+
+  it.each([
+    [
+      'both parts have a choice',
+      { choice: ownChoice('Hotel Thamel', 35, 2) },
+      { choice: ownChoice('Yak & Yeti', 120, 2) },
+      "Merge back into one stay? Part 1's choice stays. Part 2's choice (Yak & Yeti) and its $240 Lodging line will be removed.",
+    ],
+    [
+      'only part 2 has a choice',
+      {},
+      { choice: ownChoice('Yak & Yeti', 120, 2) },
+      'Merge back into one stay? Yak & Yeti will cover all 4 nights ($480).',
+    ],
+    [
+      'only part 1 has a choice',
+      { choice: ownChoice('Hotel Thamel', 35, 2) },
+      {},
+      "Merge back into one stay? Part 1's choice (Hotel Thamel) stays as it is.",
+    ],
+    ['neither part has a choice', {}, {}, 'Merge back into one stay?'],
+  ])('merging when %s says what will happen, then merges', async (_, first, second, message) => {
+    await openParts(twoParts(first, second));
+    api.delete.mockResolvedValue(overviewOf([stayOut({ can_split: true })]));
+
+    await userEvent.click(screen.getByRole('button', { name: 'Merge with part 1' }));
+    expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus(); // a second Enter can't merge
+
+    await userEvent.click(screen.getByRole('button', { name: 'Merge' }));
+
+    expect(api.delete).toHaveBeenCalledWith('/trips/7/splits/2026-11-07');
+    expect(await screen.findByRole('heading', { name: 'Where to stay in Chicago, IL', level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /part 2 of 2/ })).toBeNull();
+    expect(announced()).toMatch(/chicago, il is one stay again/i);
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL' })).toHaveFocus());
+    expect(searches()).toEqual(['/trips/7/lodging/stays/1', '/trips/7/lodging/stays/2']); // no new search
   });
 });

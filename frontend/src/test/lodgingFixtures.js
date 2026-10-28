@@ -49,6 +49,10 @@ export function stayOut(overrides = {}) {
     choice: null,
     plan_changed: false,
     choice_city: null,
+    part: null,
+    parts: null,
+    merge_night: null,
+    can_split: false,
     ...overrides,
   };
 }

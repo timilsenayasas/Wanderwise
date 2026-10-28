@@ -305,3 +305,17 @@
   display: flex;
   gap: var(--space-2);
 }
+
+/* "· part 2 of 2": a split stay's part, quieter than the city. */
+.stay-section__part {
+  font-family: var(--font-body);
+  font-size: var(--text-base);
+  color: var(--color-text-muted);
+}
+
+/* Focus lands on the tab's heading after a merge leaves one stay. */
+.stay__heading h2:focus-visible {
+  border-radius: var(--radius-sm);
+  box-shadow: var(--focus-ring);
+  outline: none;
+}

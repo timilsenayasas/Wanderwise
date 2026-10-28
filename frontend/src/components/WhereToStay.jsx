@@ -10,7 +10,7 @@ import Button from './Button';
 import Card from './Card';
 import StaySection, { StayHeader, SuggestionSkeletons } from './StaySection';
 import { formatCurrency, formatDateRange } from '../lib/format';
-import { lodgingLeftText, nightsText, SKIP_LABELS, tripNights } from '../lib/lodging';
+import { lodgingLeftText, nightsText, SKIP_LABELS, stayKey, tripNights } from '../lib/lodging';
 import './WhereToStay.css';
 
 const TITLE_ID = 'stay-title';
@@ -19,7 +19,8 @@ export default function WhereToStay({ trip, nightsVersion = 0, onHotelNames }) {
   const [overview, setOverview] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [loadError, setLoadError] = useState('');
-  const [opened, setOpened] = useState(() => new Set([1])); // the first stay opens by itself
+  // Open sections, by stayKey() so a split's renumbering doesn't move them. null: just the first stay.
+  const [opened, setOpened] = useState(null);
   const [announcement, setAnnouncement] = useState('');
   const latestRequest = useRef(0);
   const announce = useCallback((message) => setAnnouncement(message), []);
@@ -51,14 +52,23 @@ export default function WhereToStay({ trip, nightsVersion = 0, onHotelNames }) {
     if (nightsVersion > 0) load({ quiet: true });
   }, [nightsVersion, load]);
 
-  function toggle(number) {
+  const firstKey = overview?.stays[0] ? stayKey(overview.stays[0]) : null;
+  const openKeys = opened ?? new Set(firstKey ? [firstKey] : []);
+
+  function toggle(key) {
     setOpened((current) => {
-      const next = new Set(current);
-      if (next.has(number)) next.delete(number);
-      else next.add(number);
+      const next = new Set(current ?? openKeys);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   }
+
+  // A new part from a split opens (and searches) straight away.
+  const openSection = useCallback(
+    (key) => setOpened((current) => new Set([...(current ?? (firstKey ? [firstKey] : [])), key])),
+    [firstKey],
+  );
 
   if (status !== 'ready') {
     // Until the overview arrives, look like the one-stay tab (most trips have one stay).
@@ -110,16 +120,19 @@ export default function WhereToStay({ trip, nightsVersion = 0, onHotelNames }) {
         {announcement}
       </p>
 
-      {stays.map((stay) => (
+      {stays.map((stay, index) => (
         <StaySection
-          // A stay that changes city or dates (new plan, a night switched) is a new section, not stale hotels.
-          key={`${stay.number}-${stay.city}-${stay.check_in}`}
+          // By city and first night: a new plan or switched night that changes those is a new section
+          // (no stale hotels), while a split's renumbering keeps the others as they are (no new search).
+          key={stayKey(stay)}
           trip={trip}
           stay={stay}
+          previousStay={stays[index - 1] ?? null}
           lodgingLeft={overview.lodging_budget_left}
           oneStay={oneStay}
-          open={oneStay || opened.has(stay.number)}
-          onToggle={() => toggle(stay.number)}
+          open={oneStay || openKeys.has(stayKey(stay))}
+          onToggle={() => toggle(stayKey(stay))}
+          onOpenSection={openSection}
           onOverview={setOverview}
           onHotelNames={onHotelNames}
           announce={announce}
