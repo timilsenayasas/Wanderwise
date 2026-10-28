@@ -142,6 +142,9 @@ export function budgetFit(total, left) {
   return 'over';
 }
 
+/** The Stay tab's message after a split or merge, shown just above the stay it's about. */
+export const STAY_NOTICE_ID = 'stay-notice';
+
 /**
  * Which section a stay is, kept while stays are renumbered (a split moves the later ones up),
  * so their hotels aren't searched again. A stay's city and first night don't change in a split.

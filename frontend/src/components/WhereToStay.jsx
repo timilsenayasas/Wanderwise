@@ -4,13 +4,13 @@
  * its city only when it's first opened. A one-city trip has one stay and looks as it always has;
  * a multi-city trip opens its first stay and lists the others as sections to open.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import Button from './Button';
 import Card from './Card';
 import StaySection, { StayHeader, SuggestionSkeletons } from './StaySection';
 import { formatCurrency, formatDateRange } from '../lib/format';
-import { lodgingLeftText, nightsText, SKIP_LABELS, stayKey, tripNights } from '../lib/lodging';
+import { lodgingLeftText, nightsText, SKIP_LABELS, STAY_NOTICE_ID, stayKey, tripNights } from '../lib/lodging';
 import './WhereToStay.css';
 
 const TITLE_ID = 'stay-title';
@@ -24,8 +24,13 @@ export default function WhereToStay({ trip, nightsVersion = 0, hotelNames, onHot
   const [announcement, setAnnouncement] = useState('');
   const latestRequest = useRef(0);
   const announce = useCallback((message) => setAnnouncement(message), []);
-  // A result worth seeing, not just hearing (e.g. which hotel a merge kept and removed).
-  const [notice, setNotice] = useState('');
+  // A result worth seeing, not just hearing (a split's parts, which hotel a merge kept), shown just
+  // above the stay it's about (`key`, a stayKey) and read out through the announcer above.
+  const [notice, setNotice] = useState(null); // { text, key }
+  const showNotice = useCallback((text, key) => {
+    setNotice({ text, key });
+    setAnnouncement(text);
+  }, []);
 
   const load = useCallback(async ({ quiet = false } = {}) => {
     const request = ++latestRequest.current;
@@ -95,6 +100,16 @@ export default function WhereToStay({ trip, nightsVersion = 0, hotelNames, onHot
 
   const { stays, earlier_choices: earlier } = overview;
   const oneStay = stays.length === 1;
+  // Above its stay when that stay is still here; otherwise at the top.
+  const noticeAtStay = Boolean(notice && stays.some((stay) => stayKey(stay) === notice.key));
+  const noticeBox = notice && (
+    <div id={STAY_NOTICE_ID} className="stay__notice">
+      <p>{notice.text}</p>
+      <Button variant="ghost" size="sm" onClick={() => setNotice(null)}>
+        Dismiss
+      </Button>
+    </div>
+  );
 
   return (
     <section className="stay" aria-labelledby={TITLE_ID}>
@@ -122,37 +137,30 @@ export default function WhereToStay({ trip, nightsVersion = 0, hotelNames, onHot
         {announcement}
       </p>
 
-      {/* Its own live region, so it's read out as well as shown. */}
-      <div className="stay__notice" role="status" hidden={!notice}>
-        {notice && (
-          <>
-            <p>{notice}</p>
-            <Button variant="ghost" size="sm" onClick={() => setNotice('')}>
-              Dismiss
-            </Button>
-          </>
-        )}
-      </div>
+      {notice && !noticeAtStay && noticeBox}
 
       {stays.map((stay, index) => (
-        <StaySection
-          // By city and first night: a new plan or switched night that changes those is a new section
-          // (no stale hotels), while a split's renumbering keeps the others as they are (no new search).
-          key={stayKey(stay)}
-          trip={trip}
-          stay={stay}
-          previousStay={stays[index - 1] ?? null}
-          lodgingLeft={overview.lodging_budget_left}
-          oneStay={oneStay}
-          open={oneStay || openKeys.has(stayKey(stay))}
-          onToggle={() => toggle(stayKey(stay))}
-          onOpenSection={openSection}
-          onOverview={setOverview}
-          hotelNames={hotelNames}
-          onHotelNames={onHotelNames}
-          onNotice={setNotice}
-          announce={announce}
-        />
+        // By city and first night: a new plan or switched night that changes those is a new section
+        // (no stale hotels), while a split's renumbering keeps the others as they are (no new search).
+        <Fragment key={stayKey(stay)}>
+          {/* Always this slot, notice or not, so the section below is never remounted by it. */}
+          {noticeAtStay && notice.key === stayKey(stay) && noticeBox}
+          <StaySection
+            trip={trip}
+            stay={stay}
+            previousStay={stays[index - 1] ?? null}
+            lodgingLeft={overview.lodging_budget_left}
+            oneStay={oneStay}
+            open={oneStay || openKeys.has(stayKey(stay))}
+            onToggle={() => toggle(stayKey(stay))}
+            onOpenSection={openSection}
+            onOverview={setOverview}
+            hotelNames={hotelNames}
+            onHotelNames={onHotelNames}
+            onNotice={showNotice}
+            announce={announce}
+          />
+        </Fragment>
       ))}
 
       {earlier.length > 0 && (

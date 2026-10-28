@@ -13,7 +13,8 @@ import { useEffect, useId, useRef, useState } from 'react';
 import { api } from '../api/client';
 import Button from './Button';
 import { formatCurrency, formatShortDay } from '../lib/format';
-import { choiceName, nightsText, SKIP_LABELS, stayIds, stayKey, stayTotal } from '../lib/lodging';
+import { choiceName, nightsText, SKIP_LABELS, STAY_NOTICE_ID, stayIds, stayKey, stayTotal } from '../lib/lodging';
+import { usePrefersReducedMotion } from '../lib/motion';
 import './StayParts.css';
 
 /** YYYY-MM-DD plus `days`, as YYYY-MM-DD (local dates, so no timezone shift). */
@@ -96,9 +97,9 @@ export default function StayParts({
   onOverview,
   onOpenSection,
   onNotice,
-  announce,
 }) {
   const id = useId();
+  const reducedMotion = usePrefersReducedMotion();
   const [panel, setPanel] = useState(null); // null | 'split' | 'merge'
   // Nights in part 1. Set to the middle each time the panel opens: this section can outlive a merge
   // or a new plan that changes its nights (a 3-night part 1 becomes the merged 6-night stay).
@@ -134,6 +135,19 @@ export default function StayParts({
     setPanel('split');
   }
 
+  /**
+   * After the next render: focus `targetId` (or `fallbackId`) and scroll its message into view,
+   * so the result and the stay it's about are both on screen. Smooth unless reduced motion.
+   */
+  function showAfterRender(targetId, fallbackId) {
+    setTimeout(() => {
+      const target = document.getElementById(targetId) ?? (fallbackId && document.getElementById(fallbackId));
+      target?.focus({ preventScroll: true });
+      const shown = document.getElementById(STAY_NOTICE_ID) ?? target;
+      shown?.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
+    }, 0);
+  }
+
   function openMerge() {
     setKeep(null); // always the traveler's pick, never a leftover one
     setPanel('merge');
@@ -158,15 +172,15 @@ export default function StayParts({
       onOverview(overview);
       const second = overview.stays.find((s) => s.merge_night === night);
       if (second) onOpenSection(stayKey(second));
-      announce(
-        `${stay.city} is now two stays: ${nightsText(splitAfter)} and ${nightsText(stay.nights - splitAfter)}.` +
+      onNotice(
+        `Split ${stay.city} into 2 stays: ${nightsText(splitAfter)} + ${nightsText(stay.nights - splitAfter)}.` +
           (shortened ? ` ${choiceLabel(choice, hotel, hotelNames, 1)} is now set to ${nightsText(splitAfter)}.` : ''),
+        second ? stayKey(second) : stayKey(stay),
       );
       setPanel(null);
       // After the render: splitting a one-stay trip swaps its layout for sections, replacing this
       // component, so focus can't wait for an effect here.
-      const target = second ? stayIds(second.number).section : splitButtonId;
-      setTimeout(() => document.getElementById(target)?.focus(), 0);
+      showAfterRender(second ? stayIds(second.number).section : splitButtonId);
     } catch (err) {
       setError(err.message || 'Could not split this stay. Please try again.');
     } finally {
@@ -205,8 +219,8 @@ export default function StayParts({
       const target = stayIds(previousStay.number).section;
       const notice = mergedNotice();
       onOverview(overview);
-      onNotice(notice);
-      setTimeout(() => (document.getElementById(target) ?? document.getElementById('stay-title'))?.focus(), 0);
+      onNotice(notice, stayKey(previousStay)); // the merged stay keeps part 1's city and first night
+      showAfterRender(target, 'stay-title');
     } catch (err) {
       setError(err.message || 'Could not merge this stay. Please try again.');
       setSaving(false);

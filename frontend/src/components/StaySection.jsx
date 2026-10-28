@@ -316,7 +316,6 @@ export default function StaySection({
           onOverview={onOverview}
           onOpenSection={onOpenSection}
           onNotice={onNotice}
-          announce={announce}
         />
 
         {stay.plan_changed && (

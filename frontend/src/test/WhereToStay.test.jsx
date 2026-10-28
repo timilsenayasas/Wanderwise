@@ -773,7 +773,15 @@ describe('Splitting a stay and merging it back', () => {
     expect(await screen.findByRole('article', { name: 'Tiger Lodge' })).toBeVisible(); // part 2 opened and searched
     expect(part(1)).toHaveAttribute('aria-expanded', 'true');
     await waitFor(() => expect(part(2)).toHaveFocus());
-    expect(announced()).toMatch(/chicago, il is now two stays: 2 nights and 2 nights\. lake house is now set to 2 nights/i);
+    // A message says it worked, just above part 2, and that's scrolled into view (smoothly).
+    const message = 'Split Chicago, IL into 2 stays: 2 nights + 2 nights. Lake House is now set to 2 nights.';
+    const box = document.getElementById('stay-notice');
+    expect(box).toHaveTextContent(message);
+    expect(box).toBeVisible();
+    expect(box.nextElementSibling).toContainElement(part(2));
+    expect(Element.prototype.scrollIntoView.mock.contexts.at(-1)).toBe(box);
+    expect(Element.prototype.scrollIntoView).toHaveBeenLastCalledWith({ behavior: 'smooth', block: 'start' });
+    expect(announced()).toContain(message); // and read out
     // Part 1 kept its hotels (no new search), re-totalled for its 2 nights.
     expect(searches()).toEqual(['/trips/7/lodging/stays/1', '/trips/7/lodging/stays/2']);
     expect(within(card('The Drake')).getByText('$280 total, 2 nights')).toBeInTheDocument();
@@ -806,6 +814,25 @@ describe('Splitting a stay and merging it back', () => {
     expect(screen.getByRole('article', { name: 'Tiger Lodge' })).toBeVisible(); // Chitwan: still open
     // Kathmandu, Chitwan (as stay 2), then the new part (stay 2 now): Chitwan was never searched as stay 3.
     expect(searches()).toEqual(['/trips/7/lodging/stays/1', '/trips/7/lodging/stays/2', '/trips/7/lodging/stays/2']);
+  });
+
+  it('jumps to the new part without animation when reduced motion is on', async () => {
+    useReducedMotion(true);
+    const whole = stayOut({ can_split: true });
+    mockLodging(api, { overview: overviewOf([whole]), pages: { 1: page(whole) } });
+    render(<WhereToStay trip={STAY_TRIP} />);
+    await screen.findByRole('article', { name: 'The Drake' });
+    const after = twoParts();
+    api.put.mockResolvedValue(after.overview);
+    mockLodging(api, after);
+
+    await userEvent.click(screen.getByRole('button', { name: 'Split this stay' }));
+    await userEvent.click(screen.getByRole('button', { name: 'Split' }));
+
+    await waitFor(() =>
+      expect(Element.prototype.scrollIntoView).toHaveBeenLastCalledWith({ behavior: 'auto', block: 'start' }),
+    );
+    expect(document.getElementById('stay-notice')).toHaveTextContent('Split Chicago, IL into 2 stays: 2 nights + 2 nights.');
   });
 
   it("shows why a split can't be made", async () => {
@@ -849,6 +876,11 @@ describe('Splitting a stay and merging it back', () => {
     expect(screen.queryByRole('button', { name: /part 2 of 2/ })).toBeNull();
     expect(notice()).toHaveTextContent(expectedNotice);
     expect(notice()).toBeVisible();
+    // Just above the merged stay, and scrolled into view.
+    const box = document.getElementById('stay-notice');
+    expect(box.nextElementSibling).toContainElement(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL' }));
+    await waitFor(() => expect(Element.prototype.scrollIntoView.mock.contexts.at(-1)).toBe(box));
+    expect(announced()).toContain(expectedNotice);
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL' })).toHaveFocus());
     expect(searches()).toEqual(['/trips/7/lodging/stays/1', '/trips/7/lodging/stays/2']); // no new search
   }
@@ -897,7 +929,7 @@ describe('Splitting a stay and merging it back', () => {
         'Merged Chicago, IL: kept Trisuli. Removed River Bank and its $120 Lodging line.',
       );
       await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
-      expect(screen.queryByText(/Merged Chicago, IL/)).toBeNull();
+      expect(document.getElementById('stay-notice')).toBeNull(); // (the screen reader announcer keeps its last words)
     });
 
     it("names a picked hotel from this visit's name memory", async () => {
