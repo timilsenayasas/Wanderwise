@@ -335,9 +335,10 @@ describe('Trip page tabs', () => {
     mockLoad(savedPlan('Art Institute of Chicago'));
     renderTrip(undefined, '?tab=stay');
 
-    expect(await screen.findByRole('heading', { name: 'Where to stay in Chicago, IL' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Stay' })).toHaveAttribute('aria-selected', 'true');
+    // Hotels first: the loading view's heading is replaced by the stay's own once the overview arrives.
     expect(await screen.findByRole('article', { name: 'The Drake' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Stay' })).toHaveAttribute('aria-selected', 'true');
     expect(api.get).toHaveBeenCalledWith('/trips/7/lodging');
   });
 
@@ -405,7 +406,8 @@ describe('Trip page tabs', () => {
     const stay = screen.getByRole('tab', { name: 'Stay' });
     expect(stay).toHaveAttribute('aria-selected', 'true');
     expect(stay).toHaveFocus();
-    expect(await screen.findByRole('heading', { name: 'Where to stay in Chicago, IL' })).toBeVisible();
+    await screen.findByRole('article', { name: 'The Drake' }); // loaded: the heading won't be swapped out now
+    expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL' })).toBeVisible();
   });
 
   it('opens the Map tab from ?tab=map', async () => {

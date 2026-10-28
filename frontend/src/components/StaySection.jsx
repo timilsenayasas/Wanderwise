@@ -94,6 +94,8 @@ export default function StaySection({
   const [chooseError, setChooseError] = useState({ placeId: null, message: '' });
   const [skipping, setSkipping] = useState(null); // skip reason being saved
   const [actionError, setActionError] = useState('');
+  const [extending, setExtending] = useState(false);
+  const [extendError, setExtendError] = useState('');
   const [focusTarget, setFocusTarget] = useState(null); // element id to focus after the next render
   const latestRequest = useRef(0);
   const choice = stay.choice;
@@ -213,6 +215,29 @@ export default function StaySection({
     setFocusTarget(ids.change);
   }
 
+  // A hotel booked for fewer nights than the stay: the same choice, for every night of it.
+  async function extend() {
+    setExtending(true);
+    setExtendError('');
+    try {
+      const whole = { nightly_price: choice.nightly_price, nights: stay.nights };
+      const body =
+        choice.choice === 'hotel'
+          ? { choice: 'hotel', place_id: choice.place_id, ...whole }
+          : { choice: 'own', name: choice.custom_name, ...whole };
+      const saved = await saveChoice(body);
+      announce(
+        `${choiceName(saved, chosenHotel)} now covers all ${nightsText(stay.nights)}. ` +
+          `${formatCurrency(saved.total)} is in your budget.`,
+      );
+      setFocusTarget(ids.change);
+    } catch (err) {
+      setExtendError(err.message || 'Could not extend your stay. Please try again.');
+    } finally {
+      setExtending(false);
+    }
+  }
+
   async function skip(reason) {
     setSkipping(reason);
     setActionError('');
@@ -309,6 +334,9 @@ export default function StaySection({
             stayNights={stay.nights}
             editForm={editForm}
             onChange={() => setPanel('edit')}
+            onExtend={extend}
+            extending={extending}
+            extendError={extendError}
             onRemove={remove}
             onShowSuggestions={() => setFocusTarget(ids.suggestionsTitle)}
           />

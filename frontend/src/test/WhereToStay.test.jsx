@@ -875,6 +875,57 @@ describe('Splitting a stay and merging it back', () => {
     expect(searches()).toEqual(['/trips/7/lodging/stays/1', '/trips/7/lodging/stays/2']); // no new search
   });
 
+  describe('a hotel booked for fewer nights than its stay', () => {
+    /** Chicago, Nov 5 – 9 (4 nights), with a hotel for 2 of them; then Evanston. */
+    function partlyCovered(choice) {
+      const stays = [
+        stayOut({ choice }),
+        stayOut({ number: 2, city: 'Evanston, IL', check_in: '2026-11-09', check_out: '2026-11-10', nights: 1 }),
+      ];
+      return { overview: overviewOf(stays), pages: { 1: page(stays[0]) } };
+    }
+
+    it('says "2 of 4 nights" on the pill and the card, and extends my own hotel in one click', async () => {
+      mockLodging(api, partlyCovered(ownChoice('Lake House', 80, 2)));
+      render(<WhereToStay trip={STAY_TRIP} />);
+      await screen.findByRole('article', { name: 'The Drake' });
+
+      const header = screen.getByRole('button', { name: /^Chicago, IL/ });
+      expect(header).toHaveAccessibleName(/Your own place · \$160 · 2 of 4 nights$/);
+      expect(header.querySelector('.stay-status--check')).not.toBeNull(); // amber, not "done"
+      expect(yourStay()).toHaveTextContent('This covers 2 of 4 nights of this stay. The other 2 nights have no hotel yet.');
+
+      api.put.mockResolvedValue(partlyCovered(ownChoice('Lake House', 80, 4)).overview);
+      await userEvent.click(within(yourStay()).getByRole('button', { name: 'Extend to all 4 nights ($320)' }));
+
+      expect(api.put).toHaveBeenCalledWith('/trips/7/lodging/stays/1', {
+        choice: 'own',
+        name: 'Lake House',
+        nightly_price: 80,
+        nights: 4,
+      });
+      await waitFor(() => expect(header).toHaveAccessibleName(/Your own place · \$320$/));
+      expect(yourStay()).not.toHaveTextContent('This covers');
+      expect(announced()).toMatch(/lake house now covers all 4 nights\. \$320 is in your budget/i);
+    });
+
+    it('extends a picked hotel at its saved price', async () => {
+      mockLodging(api, partlyCovered(hotelChoice('p1', 140, 2)));
+      render(<WhereToStay trip={STAY_TRIP} />);
+      await screen.findByRole('article', { name: 'The Drake' });
+      api.put.mockResolvedValue(partlyCovered(hotelChoice('p1', 140, 4)).overview);
+
+      await userEvent.click(within(yourStay()).getByRole('button', { name: 'Extend to all 4 nights ($560)' }));
+
+      expect(api.put).toHaveBeenCalledWith('/trips/7/lodging/stays/1', {
+        choice: 'hotel',
+        place_id: 'p1',
+        nightly_price: 140,
+        nights: 4,
+      });
+    });
+  });
+
   it('opens the split panel on the middle night, even after the stay grew (as after a merge)', async () => {
     // The same section (same city and first night) goes from 3 nights to 6, like part 1 after a merge.
     const short = stayOut({ check_out: '2026-11-08', nights: 3, can_split: true });

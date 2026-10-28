@@ -10,7 +10,7 @@ import Card from './Card';
 import { FitBadge, HotelMeta, HotelPhoto, MapsLink } from './HotelCard';
 import Icon from './Icon';
 import { formatCurrency } from '../lib/format';
-import { choiceName, ESTIMATE_NOTE, nightsText, SKIP_LABELS } from '../lib/lodging';
+import { choiceName, ESTIMATE_NOTE, nightsText, SKIP_LABELS, stayTotal } from '../lib/lodging';
 import './StayChoice.css';
 
 /**
@@ -32,6 +32,9 @@ export default function StayChoice({
   stayNights,
   editForm,
   onChange,
+  onExtend,
+  extending = false,
+  extendError = '',
   onRemove,
   onShowSuggestions,
 }) {
@@ -180,6 +183,27 @@ export default function StayChoice({
             <Button variant="secondary" size="sm" onClick={onChange}>
               Update
             </Button>
+          </div>
+        )}
+
+        {/* Booked for fewer nights than the stay (kept after a merge, or shortened): say so, and offer the rest. */}
+        {choice.nights != null && choice.nights < stayNights && (
+          <div className="stay-choice__note">
+            <Icon name="alert" />
+            <p>
+              This covers {choice.nights} of {nightsText(stayNights)} of {oneStay ? 'your trip' : 'this stay'}. The other{' '}
+              {nightsText(stayNights - choice.nights)} {stayNights - choice.nights === 1 ? 'has' : 'have'} no hotel yet.
+            </p>
+            {onExtend && (
+              <Button variant="secondary" size="sm" onClick={onExtend} loading={extending} loadingText="Extending…">
+                Extend to all {nightsText(stayNights)} ({formatCurrency(stayTotal(choice.nightly_price, stayNights))})
+              </Button>
+            )}
+            {extendError && (
+              <p className="stay-choice__alert" role="alert">
+                {extendError}
+              </p>
+            )}
           </div>
         )}
 

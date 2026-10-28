@@ -126,6 +126,7 @@ export default function ItineraryView({ itinerary, budget, lodging, hotelNames, 
                 </ol>
                 {(night || tonight) && (
                   <Tonight
+                    date={day.date}
                     night={night}
                     stay={tonight}
                     hotelNames={hotelNames}
@@ -148,11 +149,11 @@ export default function ItineraryView({ itinerary, budget, lodging, hotelNames, 
  * "Tonight: your hotel in Chitwan", "Tonight: in transit", or a way to settle it on the Stay tab,
  * plus the traveler's switch for the night, in case the plan got it wrong.
  */
-function Tonight({ night, stay, hotelNames, onShowStay, onSetNight }) {
+function Tonight({ date, night, stay, hotelNames, onShowStay, onSetNight }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const inTransit = Boolean(night?.in_transit);
-  const text = !inTransit && stay ? tonightText(stay, hotelNames) : null;
+  const text = !inTransit && stay ? tonightText(stay, hotelNames, date) : null;
 
   async function setNight(value) {
     setSaving(true);

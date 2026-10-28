@@ -89,14 +89,27 @@ export function dayLodging(lodging, date, firstDate, lastDate) {
 /**
  * Where the traveler sleeps, for the Itinerary: a picked hotel's Google name when this visit has it
  * (`names`: place_id -> name, kept in memory only), else "your hotel in Chitwan"; their own hotel's
- * name; or what they told us. null when there's nothing settled: no choice yet, or one for another city.
+ * name; or what they told us. null when there's nothing settled: no choice yet, one for another city,
+ * or (with `date`) a night past the nights its hotel is booked for.
  */
-export function tonightText(stay, names) {
+export function tonightText(stay, names, date) {
   const { choice, city } = stay;
   if (!choice || stay.plan_changed) return null;
+  // A hotel booked for fewer nights than the stay covers its first nights only.
+  if (date && partialCover(stay) && nightsBetween(stay.check_in, date) >= choice.nights) return null;
   if (choice.choice === 'hotel') return names?.get(choice.place_id) ?? `your hotel in ${city}`;
   if (choice.choice === 'own') return choice.custom_name;
   return choice.skip_reason === 'have_place' ? `your own place in ${city}` : 'no hotel needed';
+}
+
+/**
+ * A hotel (picked or their own) that covers only some of its stay's nights, e.g. a part kept after a
+ * merge, or nights shortened by hand: { covered: 3, nights: 6 }. null when it covers the whole stay.
+ */
+export function partialCover(stay) {
+  const { choice } = stay;
+  if (!choice || choice.choice === 'skip' || choice.nights == null || choice.nights >= stay.nights) return null;
+  return { covered: choice.nights, nights: stay.nights };
 }
 
 /** The status pill on a stay's header: what's been decided for it. */
@@ -106,6 +119,11 @@ export function stayStatus(stay) {
   if (!choice) return { kind: 'open', text: 'Not chosen yet' };
   if (choice.choice === 'skip') return { kind: 'done', text: SKIP_LABELS[choice.skip_reason] };
   const label = choice.choice === 'hotel' ? 'Hotel chosen' : 'Your own place';
+  const partial = partialCover(stay);
+  if (partial) {
+    // Not "done": some nights still have nowhere to stay.
+    return { kind: 'check', text: `${label} · ${formatCurrency(choice.total)} · ${partial.covered} of ${partial.nights} nights` };
+  }
   return { kind: 'done', text: `${label} · ${formatCurrency(choice.total)}` };
 }
 
@@ -177,6 +195,11 @@ export function chosenSuggestionId(choice, suggestions) {
   const name = sameName(choice.hotel?.name);
   if (!name) return null;
   return suggestions.find((hotel) => sameName(hotel.name) === name)?.place_id ?? null;
+}
+
+/** Whole nights from one YYYY-MM-DD to another (local dates, so no timezone shift). */
+function nightsBetween(from, to) {
+  return Math.round((new Date(`${to}T00:00`) - new Date(`${from}T00:00`)) / 86_400_000);
 }
 
 /** The chosen hotel's name for messages: Google's (fresh), the traveler's own, or a fallback. */

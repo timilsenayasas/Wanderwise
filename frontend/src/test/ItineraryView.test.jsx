@@ -264,3 +264,19 @@ describe('Hotel names', () => {
     expect(screen.queryByText('Hotel names: Google Maps')).toBeNull();
   });
 });
+
+describe('A hotel booked for fewer nights than its stay', () => {
+  it('covers its first nights only; the rest say no hotel is chosen', () => {
+    // Kathmandu Nov 5 – 7 (2 nights), but Hotel Thamel is booked for 1; Chitwan Nov 7 – 9, Tiger Camp for 2.
+    const lodging = twoStays({ choice: hotelChoice('p1', 35, 1) }, { choice: ownChoice('Tiger Camp', 80, 2) });
+    render(
+      <ItineraryView itinerary={PLAN} lodging={lodging} hotelNames={new Map([['p1', 'Hotel Thamel']])} onShowStay={vi.fn()} />,
+    );
+
+    expect(day(1)).toHaveTextContent('Tonight: Hotel Thamel');
+    expect(day(2)).toHaveTextContent(`Tonight in ${KATHMANDU}: no hotel chosen yet`);
+    expect(within(day(2)).getByRole('button', { name: 'Choose where to stay' })).toBeInTheDocument();
+    expect(day(3)).toHaveTextContent('Tonight: Tiger Camp');
+    expect(day(4)).toHaveTextContent('Tonight: Tiger Camp');
+  });
+});
