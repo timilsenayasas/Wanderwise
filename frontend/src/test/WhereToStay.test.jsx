@@ -874,4 +874,22 @@ describe('Splitting a stay and merging it back', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL' })).toHaveFocus());
     expect(searches()).toEqual(['/trips/7/lodging/stays/1', '/trips/7/lodging/stays/2']); // no new search
   });
+
+  it('opens the split panel on the middle night, even after the stay grew (as after a merge)', async () => {
+    // The same section (same city and first night) goes from 3 nights to 6, like part 1 after a merge.
+    const short = stayOut({ check_out: '2026-11-08', nights: 3, can_split: true });
+    mockLodging(api, { overview: overviewOf([short]), pages: { 1: page(short) } });
+    const { rerender } = render(<WhereToStay trip={STAY_TRIP} nightsVersion={0} />);
+    await screen.findByRole('article', { name: 'The Drake' });
+    const long = stayOut({ check_out: '2026-11-11', nights: 6, can_split: true });
+    mockLodging(api, { overview: overviewOf([long]), pages: { 1: page(long) } });
+    rerender(<WhereToStay trip={STAY_TRIP} nightsVersion={1} />);
+    await waitFor(() => expect(screen.getAllByText(/6 nights/).length).toBeGreaterThan(0)); // reloaded
+
+    await userEvent.click(screen.getByRole('button', { name: 'Split this stay' }));
+
+    const checked = screen.getAllByRole('radio').find((option) => option.checked);
+    expect(checked.closest('label')).toHaveTextContent('Sun, Nov 8: 3 nights + 3 nights');
+    expect(checked).toHaveFocus();
+  });
 });

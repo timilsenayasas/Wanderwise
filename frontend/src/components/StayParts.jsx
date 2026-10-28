@@ -48,7 +48,9 @@ export function mergeMessage(stay, previous, hotel) {
 export default function StayParts({ trip, stay, previousStay, level, hotel, onOverview, onOpenSection, announce }) {
   const id = useId();
   const [panel, setPanel] = useState(null); // null | 'split' | 'merge'
-  const [wanted, setSplitAfter] = useState(Math.floor(stay.nights / 2)); // nights in part 1
+  // Nights in part 1. Set to the middle each time the panel opens: this section can outlive a merge
+  // or a new plan that changes its nights (a 3-night part 1 becomes the merged 6-night stay).
+  const [wanted, setSplitAfter] = useState(1);
   // Within the stay as it is now (a merge or new plan can change its nights).
   const splitAfter = Math.min(Math.max(wanted, 1), Math.max(stay.nights - 1, 1));
   const [saving, setSaving] = useState(false);
@@ -70,6 +72,11 @@ export default function StayParts({ trip, stay, previousStay, level, hotel, onOv
     document.getElementById(focusTarget)?.focus();
     setFocusTarget(null);
   }, [focusTarget]);
+
+  function openSplit() {
+    setSplitAfter(Math.floor(stay.nights / 2)); // the middle night: 3 + 3, or 2 + 3
+    setPanel('split');
+  }
 
   function close(focusId = splitButtonId) {
     setPanel(null);
@@ -130,7 +137,7 @@ export default function StayParts({ trip, stay, previousStay, level, hotel, onOv
       {panel === null && (
         <div className="stay-parts__actions">
           {stay.can_split && (
-            <Button id={splitButtonId} variant="secondary" size="sm" onClick={() => setPanel('split')}>
+            <Button id={splitButtonId} variant="secondary" size="sm" onClick={openSplit}>
               Split this stay
             </Button>
           )}
