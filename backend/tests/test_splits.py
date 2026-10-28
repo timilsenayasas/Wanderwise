@@ -25,8 +25,9 @@ def split(client, trip_id: int, night: str):
     return client.put(f"/api/trips/{trip_id}/splits/{night}")
 
 
-def merge(client, trip_id: int, night: str):
-    return client.delete(f"/api/trips/{trip_id}/splits/{night}")
+def merge(client, trip_id: int, night: str, keep: str | None = None):
+    query = f"?keep={keep}" if keep else ""
+    return client.delete(f"/api/trips/{trip_id}/splits/{night}{query}")
 
 
 def stays(data: dict) -> list[tuple]:
@@ -157,14 +158,35 @@ def test_splits_count_toward_the_six_stay_cap(client):
 
 
 # --- Merging --------------------------------------------------------------
-def test_merging_keeps_the_first_parts_choice_and_drops_the_seconds(client):
+def both_parts_chosen(client) -> int:
+    """Kathmandu split on Oct 12: Hotel Thamel (35 x 2) in part 1, Yak & Yeti (120 x 2) in part 2.
+
+    Chitwan has Tiger Camp.
+    """
     trip_id = kathmandu_then_chitwan(client)
     put_choice(client, trip_id, stay=2, choice="own", name="Tiger Camp", nightly_price=80, nights=2)
     split(client, trip_id, "2026-10-12")
     put_choice(client, trip_id, stay=1, choice="own", name="Hotel Thamel", nightly_price=35, nights=2)
     put_choice(client, trip_id, stay=2, choice="own", name="Yak & Yeti", nightly_price=120, nights=2)
+    return trip_id
+
+
+def test_merging_two_hotels_needs_my_choice_and_changes_nothing_without_it(client):
+    trip_id = both_parts_chosen(client)
 
     r = merge(client, trip_id, "2026-10-12")
+
+    assert r.status_code == 422
+    assert r.json()["detail"] == "Both parts have a hotel. Choose which one to keep."
+    assert [part for *_, part, _ in stays(overview(client, trip_id))] == [1, 2, None]  # still split
+    assert len(lodging_lines(trip_id)) == 3  # nothing removed
+    assert merge(client, trip_id, "2026-10-12", keep="both").status_code == 422
+
+
+def test_merging_keeps_the_first_parts_choice_and_drops_the_seconds(client):
+    trip_id = both_parts_chosen(client)
+
+    r = merge(client, trip_id, "2026-10-12", keep="first")
 
     assert r.status_code == 200
     assert stays(r.json())[0] == (1, KATHMANDU, "2026-10-10", "2026-10-14", 4, None, None)
@@ -172,6 +194,21 @@ def test_merging_keeps_the_first_parts_choice_and_drops_the_seconds(client):
     assert [line[1:] for line in lodging_lines(trip_id)] == [
         (160, "user", f"Lodging · {CHITWAN}"),
         (70, "user", f"Lodging · {KATHMANDU}"),  # the first part's, as it was (2 nights)
+    ]
+
+
+def test_merging_can_keep_the_second_parts_choice_instead_stretched_over_the_stay(client):
+    trip_id = both_parts_chosen(client)
+
+    r = merge(client, trip_id, "2026-10-12", keep="second")
+
+    assert r.status_code == 200
+    kept = choice_of(r, 1)
+    assert (kept["custom_name"], kept["nights"], kept["total"]) == ("Yak & Yeti", 4, 480)  # all 4 nights
+    assert choice_of(r, 2)["custom_name"] == "Tiger Camp"
+    assert [line[1:] for line in lodging_lines(trip_id)] == [
+        (160, "user", f"Lodging · {CHITWAN}"),
+        (480, "user", f"Lodging · {KATHMANDU}"),  # Hotel Thamel's line is gone
     ]
 
 

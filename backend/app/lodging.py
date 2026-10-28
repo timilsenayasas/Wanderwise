@@ -572,27 +572,39 @@ def split_stay(trip: Trip, night: date, db: Session) -> None:
     _refresh_lines(trip, db)
 
 
-def merge_stay(trip: Trip, night: date, db: Session) -> None:
+def merge_stay(trip: Trip, night: date, db: Session, keep: str | None = None) -> None:
     """Undo the split at `night`: the two parts are one stay again. The caller commits.
 
-    The first part's choice is kept. If only the second part has one, it's kept and stretched over
-    the whole stay. If both have one, the second part's goes, with its Lodging line.
+    Only one part has a choice: it's kept; the second part's is stretched over the whole stay (it was
+    for the later nights), the first part's keeps its nights. Both have one: `keep` ("first" or
+    "second") says which stays, the same way, and the other goes with its Lodging line; without it,
+    SplitError and nothing changes (it's the traveler's call, never made for them).
     """
     split = db.scalar(select(TripStaySplit).where(TripStaySplit.trip_id == trip.id, TripStaySplit.night_date == night))
     if split is None:
         raise SplitNotFound
     second = next((s for s in trip_stays(trip, db) if s.split_night == night), None)
+    first_number = second.number - 1 if second else None
+    rows = choice_rows(trip, db)
+    first_row = rows.get(first_number) if second else None
+    second_row = rows.get(second.number) if second else None
+    if first_row is not None and second_row is not None and keep not in ("first", "second"):
+        raise SplitError("Both parts have a hotel. Choose which one to keep.")
+
     db.delete(split)
     db.flush()
     if second is None:
         return  # a new plan had already set it aside: nothing to put back together
 
-    first_number = second.number - 1
-    rows = choice_rows(trip, db)
-    first_row, second_row = rows.get(first_number), rows.get(second.number)
     if first_row is not None and second_row is not None:
-        remove_choice(trip, second.number, db)
-    elif second_row is not None:
+        if keep == "first":
+            remove_choice(trip, second.number, db)
+            second_row = None
+        else:
+            remove_choice(trip, first_number, db)
+            first_row = None
+        db.flush()
+    if first_row is None and second_row is not None:
         second_row.stay_number = first_number
         if second_row.nights is not None:
             second_row.nights = trip_stays(trip, db)[first_number - 1].nights

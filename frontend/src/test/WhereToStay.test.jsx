@@ -837,42 +837,107 @@ describe('Splitting a stay and merging it back', () => {
     expect(screen.queryByRole('button', { name: 'Split this stay' })).toBeNull();
   });
 
+  /** The visible message after a merge. */
+  const notice = () => screen.getByText((_, element) => element?.matches?.('.stay__notice p'));
+
+  async function mergeAndCheck(path, expectedNotice) {
+    api.delete.mockResolvedValue(overviewOf([stayOut({ can_split: true })]));
+    await userEvent.click(screen.getByRole('button', { name: 'Merge' }));
+
+    expect(api.delete).toHaveBeenCalledWith(path);
+    expect(await screen.findByRole('heading', { name: 'Where to stay in Chicago, IL', level: 2 })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /part 2 of 2/ })).toBeNull();
+    expect(notice()).toHaveTextContent(expectedNotice);
+    expect(notice()).toBeVisible();
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL' })).toHaveFocus());
+    expect(searches()).toEqual(['/trips/7/lodging/stays/1', '/trips/7/lodging/stays/2']); // no new search
+  }
+
+  describe('when both parts have a hotel', () => {
+    const bothChosen = () =>
+      twoParts({ choice: ownChoice('River Bank', 60, 2) }, { choice: ownChoice('Trisuli', 80, 2) });
+
+    it('names both hotels with their prices, and merges only once I pick one', async () => {
+      await openParts(bothChosen());
+
+      await userEvent.click(screen.getByRole('button', { name: 'Merge with part 1' }));
+
+      const options = screen.getAllByRole('radio');
+      expect(options.map((option) => option.closest('label').textContent)).toEqual([
+        'River Bank · part 1 · $60 a night × 2 nights = $120 · covers 2 of 4 nights',
+        'Trisuli · part 2 · $80 a night × 4 nights = $320',
+      ]);
+      expect(screen.getByText('Merge back into one stay of 4 nights. Which hotel do you keep?')).toBeInTheDocument();
+      expect(options.some((option) => option.checked)).toBe(false); // nothing chosen for me
+      expect(options[0]).toHaveFocus();
+      expect(screen.getByRole('button', { name: 'Merge' })).toBeDisabled();
+      expect(api.delete).not.toHaveBeenCalled();
+    });
+
+    it('keeps part 1 and says which hotel was removed', async () => {
+      await openParts(bothChosen());
+      await userEvent.click(screen.getByRole('button', { name: 'Merge with part 1' }));
+
+      await userEvent.click(screen.getByRole('radio', { name: /^River Bank/ }));
+
+      await mergeAndCheck(
+        '/trips/7/splits/2026-11-07?keep=first',
+        'Merged Chicago, IL: kept River Bank (2 of 4 nights). Removed Trisuli and its $160 Lodging line.',
+      );
+    });
+
+    it('keeps part 2 instead, and says which hotel was removed', async () => {
+      await openParts(bothChosen());
+      await userEvent.click(screen.getByRole('button', { name: 'Merge with part 1' }));
+
+      await userEvent.click(screen.getByRole('radio', { name: /^Trisuli/ }));
+
+      await mergeAndCheck(
+        '/trips/7/splits/2026-11-07?keep=second',
+        'Merged Chicago, IL: kept Trisuli. Removed River Bank and its $120 Lodging line.',
+      );
+      await userEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+      expect(screen.queryByText(/Merged Chicago, IL/)).toBeNull();
+    });
+
+    it("names a picked hotel from this visit's name memory", async () => {
+      const names = new Map([['p1', 'Hotel Thamel']]);
+      mockLodging(api, twoParts({ choice: hotelChoice('p1', 35, 2) }, { choice: ownChoice('Trisuli', 80, 2) }));
+      render(<WhereToStay trip={STAY_TRIP} hotelNames={names} />);
+      await userEvent.click(await screen.findByRole('button', { name: /^Chicago, IL, part 2 of 2/ }));
+      await screen.findByRole('article', { name: 'Tiger Lodge' });
+
+      await userEvent.click(screen.getByRole('button', { name: 'Merge with part 1' }));
+
+      expect(screen.getByRole('radio', { name: /^Hotel Thamel · part 1 · \$35 a night/ })).toBeInTheDocument();
+    });
+  });
+
   it.each([
-    [
-      'both parts have a choice',
-      { choice: ownChoice('Hotel Thamel', 35, 2) },
-      { choice: ownChoice('Yak & Yeti', 120, 2) },
-      "Merge back into one stay? Part 1's choice stays. Part 2's choice (Yak & Yeti) and its $240 Lodging line will be removed.",
-    ],
     [
       'only part 2 has a choice',
       {},
       { choice: ownChoice('Yak & Yeti', 120, 2) },
       'Merge back into one stay? Yak & Yeti will cover all 4 nights ($480).',
+      'Merged Chicago, IL: Yak & Yeti now covers all 4 nights.',
     ],
     [
       'only part 1 has a choice',
       { choice: ownChoice('Hotel Thamel', 35, 2) },
       {},
       "Merge back into one stay? Part 1's choice (Hotel Thamel) stays as it is.",
+      'Merged Chicago, IL: kept Hotel Thamel (2 of 4 nights).',
     ],
-    ['neither part has a choice', {}, {}, 'Merge back into one stay?'],
-  ])('merging when %s says what will happen, then merges', async (_, first, second, message) => {
+    ['neither part has a choice', {}, {}, 'Merge back into one stay?', 'Chicago, IL is one stay again.'],
+  ])('merging when %s says what will happen, then what happened', async (_, first, second, message, done) => {
     await openParts(twoParts(first, second));
-    api.delete.mockResolvedValue(overviewOf([stayOut({ can_split: true })]));
 
     await userEvent.click(screen.getByRole('button', { name: 'Merge with part 1' }));
     expect(screen.getByText(message)).toBeInTheDocument();
+    expect(screen.queryByRole('radio')).toBeNull(); // nothing to choose
     expect(screen.getByRole('button', { name: 'Cancel' })).toHaveFocus(); // a second Enter can't merge
 
-    await userEvent.click(screen.getByRole('button', { name: 'Merge' }));
-
-    expect(api.delete).toHaveBeenCalledWith('/trips/7/splits/2026-11-07');
-    expect(await screen.findByRole('heading', { name: 'Where to stay in Chicago, IL', level: 2 })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /part 2 of 2/ })).toBeNull();
-    expect(announced()).toMatch(/chicago, il is one stay again/i);
-    await waitFor(() => expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL' })).toHaveFocus());
-    expect(searches()).toEqual(['/trips/7/lodging/stays/1', '/trips/7/lodging/stays/2']); // no new search
+    await mergeAndCheck('/trips/7/splits/2026-11-07', done);
   });
 
   describe('a hotel booked for fewer nights than its stay', () => {

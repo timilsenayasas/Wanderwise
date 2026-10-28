@@ -76,6 +76,8 @@ export default function StaySection({
   open,
   onToggle,
   onOpenSection,
+  onNotice,
+  hotelNames,
   onOverview,
   onHotelNames,
   announce,
@@ -310,8 +312,10 @@ export default function StaySection({
           previousStay={previousStay}
           level={level + 1}
           hotel={chosenHotel}
+          hotelNames={hotelNames}
           onOverview={onOverview}
           onOpenSection={onOpenSection}
+          onNotice={onNotice}
           announce={announce}
         />
 

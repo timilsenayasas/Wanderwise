@@ -15,7 +15,7 @@ import './WhereToStay.css';
 
 const TITLE_ID = 'stay-title';
 
-export default function WhereToStay({ trip, nightsVersion = 0, onHotelNames }) {
+export default function WhereToStay({ trip, nightsVersion = 0, hotelNames, onHotelNames }) {
   const [overview, setOverview] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [loadError, setLoadError] = useState('');
@@ -24,6 +24,8 @@ export default function WhereToStay({ trip, nightsVersion = 0, onHotelNames }) {
   const [announcement, setAnnouncement] = useState('');
   const latestRequest = useRef(0);
   const announce = useCallback((message) => setAnnouncement(message), []);
+  // A result worth seeing, not just hearing (e.g. which hotel a merge kept and removed).
+  const [notice, setNotice] = useState('');
 
   const load = useCallback(async ({ quiet = false } = {}) => {
     const request = ++latestRequest.current;
@@ -120,6 +122,18 @@ export default function WhereToStay({ trip, nightsVersion = 0, onHotelNames }) {
         {announcement}
       </p>
 
+      {/* Its own live region, so it's read out as well as shown. */}
+      <div className="stay__notice" role="status" hidden={!notice}>
+        {notice && (
+          <>
+            <p>{notice}</p>
+            <Button variant="ghost" size="sm" onClick={() => setNotice('')}>
+              Dismiss
+            </Button>
+          </>
+        )}
+      </div>
+
       {stays.map((stay, index) => (
         <StaySection
           // By city and first night: a new plan or switched night that changes those is a new section
@@ -134,7 +148,9 @@ export default function WhereToStay({ trip, nightsVersion = 0, onHotelNames }) {
           onToggle={() => toggle(stayKey(stay))}
           onOpenSection={openSection}
           onOverview={setOverview}
+          hotelNames={hotelNames}
           onHotelNames={onHotelNames}
+          onNotice={setNotice}
           announce={announce}
         />
       ))}

@@ -6,7 +6,7 @@ opened or Refresh is pressed.
 """
 
 from datetime import date
-from typing import Annotated
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, HTTPException, Query, status
 
@@ -174,12 +174,24 @@ def split_a_stay(trip_id: int, night: date, user: CurrentUser, db: DbSession) ->
 
 
 @router.delete("/{trip_id}/splits/{night}", response_model=LodgingOverviewOut)
-def merge_a_stay(trip_id: int, night: date, user: CurrentUser, db: DbSession) -> LodgingOverviewOut:
-    """Merge the parts split at this night back into one stay (see lodging.merge_stay for the choices)."""
+def merge_a_stay(
+    trip_id: int,
+    night: date,
+    user: CurrentUser,
+    db: DbSession,
+    keep: Annotated[Literal["first", "second"] | None, Query()] = None,
+) -> LodgingOverviewOut:
+    """Merge the parts split at this night back into one stay.
+
+    When both parts have a hotel, ?keep=first or ?keep=second says which one stays (422 without it:
+    nothing is removed unless the traveler chose). See lodging.merge_stay for what happens to each.
+    """
     trip = get_own_trip(trip_id, user, db)
     try:
-        merge_stay(trip, night, db)
+        merge_stay(trip, night, db, keep)
     except SplitNotFound:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Split not found") from None
+    except SplitError as exc:
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)) from exc
     db.commit()
     return lodging_overview(trip, db)

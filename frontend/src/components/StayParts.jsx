@@ -4,8 +4,10 @@
  * answer with the overview. Neither calls Google: only opening the new part searches (like any stay).
  *
  * Split: the first part keeps its choice, cut to its nights (and its Lodging line with it).
- * Merge: the first part's choice stays; if only the second part has one, it's stretched over the
- * whole stay; if both have one, the second part's goes, with its line. The confirm says which.
+ * Merge: with one choice, it's kept (the second part's stretched over the whole stay, as it was
+ * for the later nights; the first part's keeps its nights). With two, the traveler picks which to
+ * keep (?keep=first|second), seeing both hotels and prices; the other goes, with its line. After a
+ * merge, a message says what was kept and what was removed.
  */
 import { useEffect, useId, useRef, useState } from 'react';
 import { api } from '../api/client';
@@ -22,30 +24,80 @@ function addDays(isoDate, days) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`;
 }
 
-/** "Hotel Thamel", "Lake House", "No hotel needed": a choice as the traveler knows it. */
-function choiceLabel(choice, hotel) {
-  return choice.choice === 'skip' ? SKIP_LABELS[choice.skip_reason] : choiceName(choice, hotel);
+/**
+ * "Hotel Thamel", "Lake House", "No hotel needed": a choice as the traveler knows it. A picked hotel's
+ * name comes from its fresh details or the visit's name memory; else "your part 1 hotel".
+ */
+function choiceLabel(choice, hotel, names, part) {
+  if (choice.choice === 'skip') return SKIP_LABELS[choice.skip_reason];
+  if (choice.choice === 'hotel' && !hotel && !names?.get(choice.place_id)) return `your part ${part} hotel`;
+  return choiceName(choice, hotel ?? (names?.has(choice.place_id) ? { name: names.get(choice.place_id) } : null));
 }
 
-/** What merging will do, from both parts' choices. */
-export function mergeMessage(stay, previous, hotel) {
+/** " and its $240 Lodging line", or nothing for a skip. */
+function lineText(choice) {
+  return choice.total != null ? ` and its ${formatCurrency(choice.total)} Lodging line` : '';
+}
+
+/** The merge confirm when at most one part has a choice: what merging will do. */
+export function mergeMessage(stay, previous, hotel, names) {
   const mine = stay.choice;
   const theirs = previous.choice;
   const merged = previous.nights + stay.nights;
   const ask = 'Merge back into one stay?';
-  if (theirs && mine) {
-    const line = mine.total != null ? ` and its ${formatCurrency(mine.total)} Lodging line` : '';
-    return `${ask} Part ${previous.part}'s choice stays. Part ${stay.part}'s choice (${choiceLabel(mine, hotel)})${line} will be removed.`;
-  }
   if (mine) {
     const cost = mine.nightly_price != null ? ` (${formatCurrency(stayTotal(mine.nightly_price, merged))})` : '';
-    return `${ask} ${choiceLabel(mine, hotel)} will cover all ${nightsText(merged)}${cost}.`;
+    return `${ask} ${choiceLabel(mine, hotel, names, stay.part)} will cover all ${nightsText(merged)}${cost}.`;
   }
-  if (theirs) return `${ask} Part ${previous.part}'s choice (${choiceLabel(theirs, null)}) stays as it is.`;
+  if (theirs) return `${ask} Part ${previous.part}'s choice (${choiceLabel(theirs, null, names, previous.part)}) stays as it is.`;
   return ask;
 }
 
-export default function StayParts({ trip, stay, previousStay, level, hotel, onOverview, onOpenSection, announce }) {
+/**
+ * When both parts have a choice, the two options: keeping part 1's (its nights, as booked) or
+ * part 2's (stretched over the whole stay), each with its name and price.
+ */
+export function keepOptions(stay, previous, hotel, names) {
+  const first = previous.choice;
+  const second = stay.choice;
+  const merged = previous.nights + stay.nights;
+  // "$60 a night × 3 nights = $180" (nothing for a skip).
+  const price = (choice, nights) => {
+    if (choice.nightly_price == null) return [];
+    const total = formatCurrency(stayTotal(choice.nightly_price, nights));
+    return [`${formatCurrency(choice.nightly_price)} a night × ${nightsText(nights)} = ${total}`];
+  };
+  const firstCovers = first.nights != null && first.nights < merged ? [`covers ${first.nights} of ${nightsText(merged)}`] : [];
+  return [
+    {
+      keep: 'first',
+      name: choiceLabel(first, null, names, previous.part),
+      detail: [`part ${previous.part}`, ...price(first, first.nights ?? previous.nights), ...firstCovers].join(' · '),
+      removed: choiceLabel(second, hotel, names, stay.part),
+      removedLine: lineText(second),
+    },
+    {
+      keep: 'second',
+      name: choiceLabel(second, hotel, names, stay.part),
+      detail: [`part ${stay.part}`, ...price(second, merged)].join(' · '), // stretched over the whole stay
+      removed: choiceLabel(first, null, names, previous.part),
+      removedLine: lineText(first),
+    },
+  ];
+}
+
+export default function StayParts({
+  trip,
+  stay,
+  previousStay,
+  level,
+  hotel,
+  hotelNames,
+  onOverview,
+  onOpenSection,
+  onNotice,
+  announce,
+}) {
   const id = useId();
   const [panel, setPanel] = useState(null); // null | 'split' | 'merge'
   // Nights in part 1. Set to the middle each time the panel opens: this section can outlive a merge
@@ -56,15 +108,19 @@ export default function StayParts({ trip, stay, previousStay, level, hotel, onOv
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   const [focusTarget, setFocusTarget] = useState(null);
+  const [keep, setKeep] = useState(null); // 'first' | 'second': which hotel stays when both parts have one
   const firstFieldRef = useRef(null);
+  const firstKeepRef = useRef(null);
   const cancelMergeRef = useRef(null);
   const splitButtonId = `${id}-split`;
   const Title = `h${level}`;
+  const bothChosen = Boolean(stay.choice && previousStay?.choice);
 
   useEffect(() => {
     if (panel === 'split') firstFieldRef.current?.focus();
-    if (panel === 'merge') cancelMergeRef.current?.focus(); // a second Enter can't merge by accident
-  }, [panel]);
+    // Merging: start on the choice of hotel (nothing picked), or on Cancel. A second Enter can't merge.
+    if (panel === 'merge') (bothChosen ? firstKeepRef : cancelMergeRef).current?.focus();
+  }, [panel, bothChosen]);
 
   // Move focus once the element exists (e.g. the new part's section after a split).
   useEffect(() => {
@@ -76,6 +132,11 @@ export default function StayParts({ trip, stay, previousStay, level, hotel, onOv
   function openSplit() {
     setSplitAfter(Math.floor(stay.nights / 2)); // the middle night: 3 + 3, or 2 + 3
     setPanel('split');
+  }
+
+  function openMerge() {
+    setKeep(null); // always the traveler's pick, never a leftover one
+    setPanel('merge');
   }
 
   function close(focusId = splitButtonId) {
@@ -99,7 +160,7 @@ export default function StayParts({ trip, stay, previousStay, level, hotel, onOv
       if (second) onOpenSection(stayKey(second));
       announce(
         `${stay.city} is now two stays: ${nightsText(splitAfter)} and ${nightsText(stay.nights - splitAfter)}.` +
-          (shortened ? ` ${choiceLabel(choice, hotel)} is now set to ${nightsText(splitAfter)}.` : ''),
+          (shortened ? ` ${choiceLabel(choice, hotel, hotelNames, 1)} is now set to ${nightsText(splitAfter)}.` : ''),
       );
       setPanel(null);
       // After the render: splitting a one-stay trip swaps its layout for sections, replacing this
@@ -113,15 +174,38 @@ export default function StayParts({ trip, stay, previousStay, level, hotel, onOv
     }
   }
 
+  /** After merging: which hotel was kept and which was removed (shown, and read out). */
+  function mergedNotice() {
+    const merged = previousStay.nights + stay.nights;
+    const where = `Merged ${stay.city}`;
+    const covers = (choice) =>
+      choice.nights != null && choice.nights < merged ? ` (${choice.nights} of ${nightsText(merged)})` : '';
+    if (bothChosen) {
+      const option = keepOptions(stay, previousStay, hotel, hotelNames).find((o) => o.keep === keep);
+      const kept = keep === 'first' ? covers(previousStay.choice) : ''; // part 2's is stretched over the stay
+      return `${where}: kept ${option.name}${kept}. Removed ${option.removed}${option.removedLine}.`;
+    }
+    if (stay.choice) {
+      return `${where}: ${choiceLabel(stay.choice, hotel, hotelNames, stay.part)} now covers all ${nightsText(merged)}.`;
+    }
+    if (previousStay.choice) {
+      const first = previousStay.choice;
+      return `${where}: kept ${choiceLabel(first, null, hotelNames, previousStay.part)}${covers(first)}.`;
+    }
+    return `${stay.city} is one stay again.`;
+  }
+
   async function merge() {
     setSaving(true);
     setError('');
     try {
-      const overview = await api.delete(`/trips/${trip.id}/splits/${stay.merge_night}`);
+      const query = bothChosen ? `?keep=${keep}` : '';
+      const overview = await api.delete(`/trips/${trip.id}/splits/${stay.merge_night}${query}`);
       // This part's section goes away: focus the merged stay's (or the one-stay tab's heading).
       const target = stayIds(previousStay.number).section;
+      const notice = mergedNotice();
       onOverview(overview);
-      announce(`${stay.city} is one stay again.`);
+      onNotice(notice);
       setTimeout(() => (document.getElementById(target) ?? document.getElementById('stay-title'))?.focus(), 0);
     } catch (err) {
       setError(err.message || 'Could not merge this stay. Please try again.');
@@ -142,7 +226,7 @@ export default function StayParts({ trip, stay, previousStay, level, hotel, onOv
             </Button>
           )}
           {canMerge && (
-            <Button id={`${id}-merge`} variant="ghost" size="sm" onClick={() => setPanel('merge')}>
+            <Button id={`${id}-merge`} variant="ghost" size="sm" onClick={openMerge}>
               Merge with part {previousStay.part}
             </Button>
           )}
@@ -174,7 +258,7 @@ export default function StayParts({ trip, stay, previousStay, level, hotel, onOv
           </fieldset>
           {shortened && (
             <p className="stay-parts__note" aria-live="polite">
-              {choiceLabel(choice, hotel)} will be set to {nightsText(splitAfter)}
+              {choiceLabel(choice, hotel, hotelNames, 1)} will be set to {nightsText(splitAfter)}
               {choice.nightly_price != null && ` (${formatCurrency(stayTotal(choice.nightly_price, splitAfter))})`}, and
               its Lodging line with it.
             </p>
@@ -197,14 +281,45 @@ export default function StayParts({ trip, stay, previousStay, level, hotel, onOv
 
       {panel === 'merge' && (
         <div className="stay-parts__panel">
-          <p>{mergeMessage(stay, previousStay, hotel)}</p>
+          {bothChosen ? (
+            <fieldset className="stay-parts__nights">
+              <legend>
+                Merge back into one stay of {nightsText(previousStay.nights + stay.nights)}. Which hotel do you keep?
+              </legend>
+              {keepOptions(stay, previousStay, hotel, hotelNames).map((option, index) => (
+                <label key={option.keep} className="stay-parts__night">
+                  <input
+                    ref={index === 0 ? firstKeepRef : undefined}
+                    type="radio"
+                    name={`${id}-keep`}
+                    value={option.keep}
+                    checked={keep === option.keep}
+                    onChange={() => setKeep(option.keep)}
+                  />
+                  <span>
+                    <strong>{option.name}</strong> · {option.detail}
+                  </span>
+                </label>
+              ))}
+              <p className="text-muted">The other one is removed, with its Lodging line.</p>
+            </fieldset>
+          ) : (
+            <p>{mergeMessage(stay, previousStay, hotel, hotelNames)}</p>
+          )}
           {error && (
             <p className="stay-parts__alert" role="alert">
               {error}
             </p>
           )}
           <div className="stay-parts__actions">
-            <Button variant="accent" size="sm" onClick={merge} loading={saving} loadingText="Merging…">
+            <Button
+              variant="accent"
+              size="sm"
+              onClick={merge}
+              loading={saving}
+              loadingText="Merging…"
+              disabled={bothChosen && !keep} // never a hotel removed that the traveler didn't pick
+            >
               Merge
             </Button>
             <Button ref={cancelMergeRef} variant="ghost" size="sm" onClick={() => close(`${id}-merge`)} disabled={saving}>

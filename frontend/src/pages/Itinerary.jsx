@@ -381,6 +381,7 @@ export default function Itinerary() {
                   key={trip.id}
                   trip={trip}
                   nightsVersion={nightsVersion}
+                  hotelNames={hotelNames.current}
                   onHotelNames={rememberHotelNames}
                 />
               </Suspense>
