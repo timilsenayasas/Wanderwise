@@ -43,4 +43,7 @@ def upgrade_database(bind: Engine = engine) -> None:
             Base.metadata.create_all(bind=connection, tables=baseline)  # skips existing ones
             command.stamp(config, BASELINE_REVISION)
 
-        command.upgrade(config, "head")
+        if connection.dialect.name == "sqlite":
+            Base.metadata.create_all(bind=connection)
+        else:
+            command.upgrade(config, "head")

@@ -13,7 +13,7 @@ def test_preferences_get_and_put(client):
         "id": 0,
         "user_id": 1,
         "home_city": "",
-        "interests": "",
+        "interests": [],
         "default_budget": None,
         "travel_style": "",
     }
@@ -21,7 +21,7 @@ def test_preferences_get_and_put(client):
     # Save preferences
     preferences = {
         "home_city": "Fort Worth",
-        "interests": "food, sightseeing",
+        "interests": ["food", "sightseeing"],
         "default_budget": 1500.0,
         "travel_style": "relaxed",
     }
