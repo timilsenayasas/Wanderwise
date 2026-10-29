@@ -2,6 +2,7 @@
 
 import re
 from datetime import date, datetime
+from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -156,6 +157,30 @@ class SavedDay(BaseModel):
     activities: list[SavedActivity]
 
 
+# The fixed budget categories every cost line uses (A2, see budget.py).
+BudgetCategory = Literal["food", "activities", "transport", "lodging", "other"]
+
+
+class CostItemIn(BaseModel):
+    """A traveler's own cost line. Plan lines come only from generating a plan."""
+
+    category: BudgetCategory
+    amount: float = Field(ge=0, allow_inf_nan=False)
+    description: str | None = Field(default=None, max_length=200)
+    trip_date: date | None = None  # must fall within the trip's dates (checked in the router)
+
+    @field_validator("amount")
+    @classmethod
+    def whole_cents(cls, v: float) -> float:
+        # Stored amounts are whole cents, so budget totals add up exactly.
+        return round(v, 2)
+
+    @field_validator("description")
+    @classmethod
+    def blank_is_none(cls, v: str | None) -> str | None:
+        return (v or "").strip() or None
+
+
 class CostItemOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -163,6 +188,8 @@ class CostItemOut(BaseModel):
     category: str
     description: str | None
     amount: float
+    source: str
+    trip_date: date | None
 
 
 class SavedPlanOut(BaseModel):
@@ -172,3 +199,32 @@ class SavedPlanOut(BaseModel):
     total_estimated_cost: float
     days: list[SavedDay]
     cost_items: list[CostItemOut]
+
+
+# --- Budget (A2) ----------------------------------------------------------
+class CategoryTotal(BaseModel):
+    category: BudgetCategory
+    amount: float
+
+
+class DayTotal(BaseModel):
+    day_number: int
+    date: date
+    amount: float
+
+
+class BudgetOut(BaseModel):
+    """Worked out from the trip's cost lines, not the AI's own total."""
+
+    trip_id: int
+    currency: str
+    # Every amount is an estimate (the AI's or the traveler's), not a quoted price.
+    estimated: bool
+    categories: list[CategoryTotal]  # every budget category, in order; they add up to total
+    per_day: list[DayTotal]  # the saved plan's days; empty without a plan
+    not_by_day: float  # user lines not on a plan day; sum(per_day) + not_by_day == total
+    total: float
+    budget: float | None
+    remaining: float | None  # budget - total; negative when over budget
+    over_budget: bool | None
+    items: list[CostItemOut]

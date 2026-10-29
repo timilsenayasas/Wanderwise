@@ -32,6 +32,11 @@
   margin-top: var(--space-3);
 }
 
+.trip-page__sections {
+  display: grid;
+  gap: var(--space-5);
+}
+
 .trip-page__plan-cta {
   display: grid;
   gap: var(--space-3);

@@ -3,7 +3,7 @@ import './Card.css';
 /**
  * Surface container.
  *   <Card>…</Card>
- *   <Card as="section" padding="lg" interactive>…</Card>   // hover lift
+ *   <Card as="section" padding="lg" interactive>…</Card>   // hover lift (mouse only, no motion if reduced)
  *   <Card tone="navy">…</Card>                             // dark feature card
  */
 export default function Card({ as: Tag = 'div', padding = 'md', tone = 'default', interactive = false, className = '', children, ...props }) {

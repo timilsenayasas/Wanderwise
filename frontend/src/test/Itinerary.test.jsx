@@ -1,13 +1,17 @@
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
 import Itinerary from '../pages/Itinerary';
+import { budgetResponse, emptyBudget } from './budgetFixtures';
+import { googleMaps, resetGoogleMaps } from './mockGoogleMaps';
+
+vi.mock('@vis.gl/react-google-maps', () => import('./mockGoogleMaps'));
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, api: { get: vi.fn(), post: vi.fn() } };
+  return { ...actual, api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } };
 });
 
 const TRIP = {
@@ -53,19 +57,35 @@ function savedPlan(...names) {
   };
 }
 
-/** GET /trips/7 returns TRIP; GET /trips/7/plan returns `plan` (null = none saved yet). */
-function mockLoad(plan, trip = TRIP) {
-  api.get.mockImplementation((path) => Promise.resolve(path.endsWith('/plan') ? plan : trip));
+/** A saved plan whose activity has map coordinates (A12). */
+function locatedPlan() {
+  const plan = savedPlan('Art Institute of Chicago');
+  plan.days[0].activities[0] = { ...plan.days[0].activities[0], latitude: 41.8796, longitude: -87.6237 };
+  return plan;
+}
+
+/** GET /trips/7 returns TRIP; /plan returns `plan` (null = none saved yet); /budget a budget. */
+function mockLoad(plan, trip = TRIP, budget = budgetResponse()) {
+  api.get.mockImplementation((path) => {
+    if (path.endsWith('/plan')) return Promise.resolve(plan);
+    if (path.endsWith('/budget')) return Promise.resolve(budget);
+    return Promise.resolve(trip);
+  });
 }
 
 function LocationState() {
   const location = useLocation();
-  return <p data-testid="state">{JSON.stringify(location.state)}</p>;
+  return (
+    <>
+      <p data-testid="state">{JSON.stringify(location.state)}</p>
+      <p data-testid="search">{location.search}</p>
+    </>
+  );
 }
 
-function renderTrip(state) {
+function renderTrip(state, search = '') {
   render(
-    <MemoryRouter initialEntries={[{ pathname: '/trips/7', state }]}>
+    <MemoryRouter initialEntries={[{ pathname: '/trips/7', search, state }]}>
       <Routes>
         <Route
           path="/trips/:tripId"
@@ -82,8 +102,13 @@ function renderTrip(state) {
 }
 
 beforeEach(() => {
-  api.get.mockReset();
-  api.post.mockReset();
+  Object.values(api).forEach((fn) => fn.mockReset());
+  resetGoogleMaps();
+});
+
+afterEach(() => {
+  vi.unstubAllEnvs();
+  vi.restoreAllMocks();
 });
 
 describe('Trip page plan', () => {
@@ -169,5 +194,142 @@ describe('Trip page plan', () => {
     expect(await screen.findByText(/add a budget and at least one interest/i)).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /generate ai itinerary/i })).not.toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
+  });
+});
+
+describe('Trip page tabs', () => {
+  it('opens on the Itinerary tab without loading the budget', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip();
+
+    expect(await screen.findByText('Art Institute of Chicago')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Itinerary' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Budget' })).toHaveAttribute('aria-selected', 'false');
+    expect(api.get).not.toHaveBeenCalledWith('/trips/7/budget');
+  });
+
+  it('switches to Budget on click and keeps the tab in the URL', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip();
+
+    await userEvent.click(await screen.findByRole('tab', { name: 'Budget' }));
+
+    expect(screen.getByRole('tab', { name: 'Budget' })).toHaveAttribute('aria-selected', 'true');
+    expect(await screen.findByRole('heading', { name: 'Budget' })).toBeInTheDocument();
+    expect(screen.getByRole('tabpanel', { name: 'Budget' })).toBeVisible();
+    expect(screen.queryByText('Art Institute of Chicago')).not.toBeVisible();
+    expect(screen.getByTestId('search')).toHaveTextContent('?tab=budget');
+    expect(api.get).toHaveBeenCalledWith('/trips/7/budget');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+
+    expect(screen.getByText('Art Institute of Chicago')).toBeVisible();
+    expect(screen.getByTestId('search')).toBeEmptyDOMElement();
+  });
+
+  it('moves between tabs with the arrow keys, Home and End', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip();
+    const itinerary = await screen.findByRole('tab', { name: 'Itinerary' });
+    const budget = screen.getByRole('tab', { name: 'Budget' });
+    const map = screen.getByRole('tab', { name: 'Map' });
+
+    // Only the selected tab is in the Tab order.
+    expect(itinerary).toHaveAttribute('tabindex', '0');
+    expect(budget).toHaveAttribute('tabindex', '-1');
+    expect(map).toHaveAttribute('tabindex', '-1');
+
+    itinerary.focus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(budget).toHaveFocus();
+    expect(budget).toHaveAttribute('aria-selected', 'true');
+    expect(budget).toHaveAttribute('tabindex', '0');
+
+    await userEvent.keyboard('{ArrowRight}');
+    expect(map).toHaveFocus();
+    await userEvent.keyboard('{ArrowRight}'); // wraps around
+    expect(itinerary).toHaveFocus();
+    expect(itinerary).toHaveAttribute('aria-selected', 'true');
+
+    await userEvent.keyboard('{End}');
+    expect(map).toHaveFocus();
+    await userEvent.keyboard('{Home}');
+    expect(itinerary).toHaveFocus();
+    await userEvent.keyboard('{ArrowLeft}'); // wraps the other way
+    expect(map).toHaveFocus();
+  });
+
+  it('opens the Budget tab from ?tab=budget', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip(undefined, '?tab=budget');
+
+    expect(await screen.findByRole('heading', { name: 'Budget' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Budget' })).toHaveAttribute('aria-selected', 'true');
+    expect(api.get).toHaveBeenCalledWith('/trips/7/budget');
+  });
+
+  it("the Budget tab's empty state leads back to the Itinerary tab", async () => {
+    mockLoad(null, TRIP, emptyBudget());
+    renderTrip(undefined, '?tab=budget');
+
+    await userEvent.click(await screen.findByRole('button', { name: /go to itinerary/i }));
+
+    const itinerary = screen.getByRole('tab', { name: 'Itinerary' });
+    expect(itinerary).toHaveAttribute('aria-selected', 'true');
+    expect(itinerary).toHaveFocus();
+    expect(screen.getByRole('button', { name: /generate ai itinerary/i })).toBeVisible();
+    expect(screen.getByTestId('search')).toBeEmptyDOMElement();
+  });
+
+  it('opens the Map tab from ?tab=map', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip(undefined, '?tab=map');
+
+    expect(await screen.findByRole('tab', { name: 'Map' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tabpanel', { name: 'Map' })).toBeVisible();
+    expect(api.get).not.toHaveBeenCalledWith('/trips/7/budget');
+  });
+
+  it('keeps the other tabs working when the map fails to load', async () => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_KEY', 'test-browser-key');
+    googleMaps.status = 'FAILED';
+    mockLoad(locatedPlan());
+    renderTrip(undefined, '?tab=map');
+
+    expect(await screen.findByText(/the map can't load right now/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Budget' }));
+    expect(await screen.findByRole('heading', { name: 'Budget' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+    expect(screen.getByText('Art Institute of Chicago')).toBeVisible();
+  });
+
+  it('keeps the page working when the map crashes', async () => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_KEY', 'test-browser-key');
+    vi.spyOn(console, 'error').mockImplementation(() => {}); // React logs the caught error
+    googleMaps.crash = true;
+    mockLoad(locatedPlan());
+    renderTrip(undefined, '?tab=map');
+
+    expect(await screen.findByText(/the rest of your trip still works/i)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+    expect(screen.getByText('Art Institute of Chicago')).toBeVisible();
+    expect(screen.getByRole('button', { name: /regenerate/i })).toBeInTheDocument();
+  });
+
+  it('ignores an unknown ?tab= and opens the Itinerary tab', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip(undefined, '?tab=nope');
+
+    expect(await screen.findByRole('tab', { name: 'Itinerary' })).toHaveAttribute('aria-selected', 'true');
+  });
+
+  it('keeps ?tab= when clearing the New Trip flag', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip({ generate: true }, '?tab=budget');
+
+    await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('null'));
+    expect(screen.getByTestId('search')).toHaveTextContent('?tab=budget');
   });
 });

@@ -1,7 +1,8 @@
 """A1: save a generated plan with its trip, load it back, and clear it.
 
-A saved plan is: trip_days -> activities, plus cost_items (one line per activity category).
-SQLite doesn't enforce foreign keys yet, so clear_plan deletes rows explicitly
+A saved plan is: trip_days -> activities, plus plan cost_items (one line per activity category).
+The traveler's own cost lines (source "user") belong to the trip, not the plan.
+SQLite doesn't enforce foreign keys yet, so clear_plan/clear_trip delete rows explicitly
 instead of relying on ON DELETE CASCADE.
 """
 
@@ -10,7 +11,8 @@ from collections import defaultdict
 from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
-from app.models import Activity, CostItem, Trip, TripDay
+from app.budget import PLAN_CURRENCY, to_budget_category, to_cents, to_dollars
+from app.models import PLAN_SOURCE, Activity, CostItem, Trip, TripDay
 from app.schemas import (
     CostItemOut,
     ItineraryActivity,
@@ -20,8 +22,6 @@ from app.schemas import (
     SavedPlanOut,
 )
 
-# Plans are generated in USD to match the trip budget (see services/llm.py).
-PLAN_CURRENCY = "USD"
 MINUTES_PER_DAY = 24 * 60
 
 
@@ -53,14 +53,24 @@ def has_plan(trip: Trip, db: Session) -> bool:
 
 
 def clear_plan(trip: Trip, db: Session) -> None:
-    """Delete the trip's saved plan rows. The caller commits."""
+    """Delete the trip's saved plan rows, keeping the traveler's own cost lines. The caller commits."""
     day_ids = select(TripDay.id).where(TripDay.trip_id == trip.id)
     db.execute(delete(Activity).where(Activity.trip_day_id.in_(day_ids)))
     db.execute(delete(TripDay).where(TripDay.trip_id == trip.id))
+    db.execute(delete(CostItem).where(CostItem.trip_id == trip.id, CostItem.source == PLAN_SOURCE))
+
+
+def clear_trip(trip: Trip, db: Session) -> None:
+    """Delete the plan and every cost line (plan and user), before deleting the trip. The caller commits."""
+    clear_plan(trip, db)
     db.execute(delete(CostItem).where(CostItem.trip_id == trip.id))
 
 
-def _activity_row(trip_day: TripDay, activity: ItineraryActivity) -> Activity:
+def _activity_row(
+    trip_day: TripDay, activity: ItineraryActivity, coordinates: dict[str, tuple[float, float]]
+) -> Activity:
+    # Filled from `location` by services/geocoding.py; None when it wasn't found or wasn't looked up.
+    latitude, longitude = coordinates.get(activity.location.strip(), (None, None))
     # Slices match the column lengths (Postgres rejects longer strings).
     return Activity(
         trip_day_id=trip_day.id,
@@ -72,43 +82,53 @@ def _activity_row(trip_day: TripDay, activity: ItineraryActivity) -> Activity:
         category=activity.category[:80],
         estimated_cost=activity.estimated_cost,
         travel_minutes_to_next=activity.travel_time_to_next_minutes,
-        # The AI gives no coordinates; the map card (A12) fills these from `location`.
-        latitude=None,
-        longitude=None,
+        latitude=latitude,
+        longitude=longitude,
     )
 
 
 def build_cost_items(trip: Trip, itinerary: ItineraryResponse) -> list[CostItem]:
-    """One cost line per activity category with its summed cost. $0 categories are skipped."""
-    totals: dict[str, float] = defaultdict(float)
+    """One cost line per budget category with its summed cost. $0 categories are skipped."""
+    # Summed in cents, like the budget summary, so each line equals its activities to the cent.
+    totals: dict[str, int] = defaultdict(int)
     counts: dict[str, int] = defaultdict(int)
     for day in itinerary.days:
         for activity in day.activities:
-            category = activity.category.strip().lower()[:80] or "other"
-            totals[category] += activity.estimated_cost
+            category = to_budget_category(activity.category)
+            totals[category] += to_cents(activity.estimated_cost)
             counts[category] += 1
 
     return [
         CostItem(
             trip_id=trip.id,
+            source=PLAN_SOURCE,
             category=category,
             description=f"{counts[category]} {'activity' if counts[category] == 1 else 'activities'}",
-            amount=round(total, 2),
+            amount=to_dollars(cents),
         )
-        for category, total in totals.items()
-        if total > 0
+        for category, cents in totals.items()
+        if cents > 0
     ]
 
 
-def save_plan(trip: Trip, itinerary: ItineraryResponse, db: Session) -> None:
-    """Replace the trip's saved plan with this itinerary. The caller commits."""
+def save_plan(
+    trip: Trip,
+    itinerary: ItineraryResponse,
+    db: Session,
+    coordinates: dict[str, tuple[float, float]] | None = None,
+) -> None:
+    """Replace the trip's saved plan with this itinerary. The caller commits.
+
+    `coordinates` maps location text to (latitude, longitude), from geocoding.locate_activities().
+    """
     clear_plan(trip, db)
+    coordinates = coordinates or {}
 
     for number, day in enumerate(itinerary.days, start=1):
         trip_day = TripDay(trip_id=trip.id, day_number=number, trip_date=day.date)
         db.add(trip_day)
         db.flush()  # assigns trip_day.id for its activities
-        db.add_all(_activity_row(trip_day, activity) for activity in day.activities)
+        db.add_all(_activity_row(trip_day, activity, coordinates) for activity in day.activities)
 
     db.add_all(build_cost_items(trip, itinerary))
 

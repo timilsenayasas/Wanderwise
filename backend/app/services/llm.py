@@ -67,6 +67,7 @@ REQUIREMENTS
 - Include at least one meal suggestion per day.
 - Give every activity a start time (24-hour HH:MM) and duration.
 - Include estimated cost for each activity.
+- estimated_cost is the total for all travelers, not per person.
 - Include estimated travel time to the next activity.
 - Keep the total estimated cost within the traveler's budget when reasonably possible.
 - All monetary values must be in US dollars (USD).

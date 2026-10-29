@@ -1,0 +1,67 @@
+.budget-status {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.budget-status__total {
+  display: grid;
+  gap: var(--space-1);
+}
+
+.budget-status__label {
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-muted);
+}
+
+.budget-status__amount {
+  font-family: var(--font-display);
+  font-size: var(--text-3xl);
+  font-weight: 600;
+  line-height: var(--leading-tight);
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.budget-status__note {
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+/* ---- Compared to the budget ---- */
+.budget-status__message {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  padding: var(--space-3) var(--space-4);
+  border-left: 4px solid var(--color-border-strong);
+  border-radius: var(--radius-sm);
+  background: var(--color-bg-deep);
+}
+
+.budget-status__message p {
+  min-width: 0; /* wrap beside the icon on narrow screens */
+  margin: 0;
+}
+
+.budget-status__message .icon {
+  flex-shrink: 0;
+}
+
+.budget-status__message--under {
+  border-left-color: var(--color-success);
+  background: var(--color-success-soft);
+}
+
+.budget-status__message--under .icon {
+  color: var(--color-success);
+}
+
+.budget-status__message--over {
+  border-left-color: var(--color-error);
+  background: var(--color-error-soft);
+  color: var(--color-error);
+  font-weight: 500;
+}

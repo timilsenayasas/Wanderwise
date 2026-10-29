@@ -111,6 +111,16 @@ def create_trip(client, **overrides) -> int:
     return client.post("/api/trips", json={**VALID_TRIP, **overrides}).json()["id"]
 
 
+def add_user_line(trip_id: int, category="lodging", amount=300.0, trip_date=None) -> None:
+    """A traveler's own cost line, written straight to the database."""
+    db = next(app.dependency_overrides[get_db]())
+    try:
+        db.add(CostItem(trip_id=trip_id, source="user", category=category, amount=amount, trip_date=trip_date))
+        db.commit()
+    finally:
+        db.close()
+
+
 # --- Access ---------------------------------------------------------------
 def test_plan_requires_login(client):
     assert client.get("/api/trips/1/plan").status_code == 401
@@ -198,9 +208,20 @@ def test_cost_items_match_the_plan(client, monkeypatch):
     plan = client.post(f"/api/trips/{trip_id}/plan").json()
 
     lines = {item["category"]: (item["amount"], item["description"]) for item in plan["cost_items"]}
-    # "Meal" and "meal" group together; nature cost $0 so it has no line.
-    assert lines == {"sightseeing": (32.0, "1 activity"), "meal": (65.0, "2 activities")}
+    # "meal" and "Meal" -> food; sightseeing and the $0 nature walk -> activities.
+    assert lines == {"activities": (32.0, "2 activities"), "food": (65.0, "2 activities")}
+    assert {item["source"] for item in plan["cost_items"]} == {"plan"}
     assert plan["total_estimated_cost"] == 97.0
+
+
+def test_prompt_asks_for_costs_for_the_whole_group(client, monkeypatch):
+    prompts = use_fake_gemini(monkeypatch, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+
+    client.post(f"/api/trips/{trip_id}/plan")
+
+    assert "estimated_cost is the total for all travelers, not per person." in prompts[0]
 
 
 # --- Replace --------------------------------------------------------------
@@ -218,6 +239,20 @@ def test_regenerate_replaces_the_plan(client, monkeypatch):
     assert names == ["Field Museum", "Hot dog stand"]
     assert plan_row_counts() == (2, 2, 1)
     assert client.get(f"/api/trips/{trip_id}/plan").json() == r.json()
+
+
+def test_regenerate_keeps_user_cost_lines(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+    client.post(f"/api/trips/{trip_id}/plan")
+    add_user_line(trip_id)
+
+    plan = client.post(f"/api/trips/{trip_id}/plan").json()
+
+    lines = [(item["source"], item["amount"]) for item in plan["cost_items"]]
+    assert sorted(lines) == [("plan", 30.0), ("user", 300.0)]  # old plan lines gone, user line kept
+    assert count_rows(CostItem) == 2
 
 
 def test_plans_for_two_trips_are_kept_apart(client, monkeypatch):
@@ -248,11 +283,12 @@ def test_gemini_error_keeps_the_old_plan(client, monkeypatch):
     assert client.get(f"/api/trips/{trip_id}/plan").json() == saved
 
 
-def test_deleting_a_trip_deletes_its_plan(client, monkeypatch):
+def test_deleting_a_trip_deletes_its_plan_and_cost_lines(client, monkeypatch):
     use_fake_gemini(monkeypatch, FIRST_PLAN)
     register(client)
     trip_id = create_trip(client)
     client.post(f"/api/trips/{trip_id}/plan")
+    add_user_line(trip_id)
 
     client.delete(f"/api/trips/{trip_id}")
 
