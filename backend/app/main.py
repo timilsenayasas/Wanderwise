@@ -23,7 +23,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
 from app.db_migrate import upgrade_database
-from app.routers import auth, budget, plan, preferences, trips
+from app.routers import auth, budget, plan, preferences, trips, weather
 
 
 @asynccontextmanager
@@ -53,3 +53,4 @@ app.include_router(preferences.router)
 app.include_router(trips.router)
 app.include_router(plan.router)
 app.include_router(budget.router)
+app.include_router(weather.router)
