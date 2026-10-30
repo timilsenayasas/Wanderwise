@@ -8,6 +8,9 @@ Changing a table here? Create a migration afterwards (see README, "Database chan
 from datetime import date, datetime, timezone
 
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text
+import sqlalchemy as sa
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy import JSON
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.database import Base
@@ -60,8 +63,10 @@ class Preference(Base):
     home_city: Mapped[str] = mapped_column(
         String(120), default="", nullable=False
     )
-    interests: Mapped[str] = mapped_column(
-        Text, default="", nullable=False
+    interests: Mapped[list[str]] = mapped_column(
+        sa.JSON().with_variant(JSONB(), "postgresql"),
+        default=list,
+        nullable=False,
     )
     default_budget: Mapped[float | None] = mapped_column(
         Float, nullable=True

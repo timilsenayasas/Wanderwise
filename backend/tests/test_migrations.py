@@ -171,7 +171,7 @@ def test_existing_cost_items_become_plan_lines_with_fixed_categories(tmp_path):
                 {"category": category},
             )
 
-    upgrade_database(engine)
+    upgrade_to(engine, "93c75e18b68d")
 
     with engine.connect() as connection:
         rows = connection.execute(

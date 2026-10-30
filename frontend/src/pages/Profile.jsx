@@ -24,7 +24,7 @@ export default function Profile() {
 
                 setPreferences({
                     home_city: data.home_city || '',
-                    interests: data.interests || '',
+                    interests: Array.isArray(data.interests) ? data.interests.join(', ') : '',
                     default_budget: data.default_budget ?? '',
                     travel_style: data.travel_style || '',
                 });
@@ -56,7 +56,7 @@ export default function Profile() {
         try {
             const data = await api.put('/me/preferences', {
                 home_city: preferences.home_city,
-                interests: preferences.interests,
+                interests: preferences.interests.split(',').map((item) => item.trim()).filter(Boolean),
                 default_budget:
                     preferences.default_budget === ''
                         ? null
@@ -66,7 +66,7 @@ export default function Profile() {
 
             setPreferences({
                 home_city: data.home_city || '',
-                interests: data.interests || '',
+                interests: Array.isArray(data.interests) ? data.interests.join(', ') : '',
                 default_budget: data.default_budget ?? '',
                 travel_style: data.travel_style || '',
             });
