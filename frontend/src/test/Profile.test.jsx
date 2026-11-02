@@ -12,6 +12,36 @@ vi.mock('../api/client', () => ({
 }));
 
 describe('Profile page', () => {
+        it('shows skeleton placeholders while preferences are loading', async () => {
+        let finishLoading;
+
+        api.get.mockImplementation(
+            () => new Promise((resolve) => {
+                finishLoading = resolve;
+            }),
+        );
+
+        render(<Profile />);
+
+        expect(
+            screen.getByRole('status', { name: 'Loading your preferences' }),
+        ).toBeInTheDocument();
+
+        expect(document.querySelectorAll('.skeleton')).toHaveLength(10);
+
+        finishLoading({
+            home_city: 'Fort Worth',
+            interests: 'Food',
+            default_budget: 1500,
+            travel_style: 'Relaxed',
+        });
+
+        expect(
+            await screen.findByLabelText('Home city'),
+        ).toHaveValue('Fort Worth');
+
+        expect(document.querySelectorAll('.skeleton')).toHaveLength(0);
+    });
     it('loads and displays saved preferences', async () => {
         api.get.mockResolvedValue({
             id: 1,

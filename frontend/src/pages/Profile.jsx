@@ -3,6 +3,7 @@ import { api } from '../api/client';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import Input from '../components/Input';
+import Skeleton from '../components/Skeleton';
 
 export default function Profile() {
     const [preferences, setPreferences] = useState({
@@ -79,11 +80,50 @@ export default function Profile() {
         }
     }
 
+    // B2: Skeleton loading screen for profile preferences.
     if (loading) {
         return (
-            <section className="container">
+            <section
+                className="container"
+                role="status"
+                aria-label="Loading your preferences"
+            >
                 <h1>Profile</h1>
-                <p>Loading your preferences...</p>
+                <span className="visually-hidden">
+                    Loading your preferences...
+                </span>
+
+                <Skeleton width="45%" height="16px" />
+
+                <Card as="section" padding="lg">
+                    <div style={{ display: 'grid', gap: '24px' }}>
+                        {[1, 2, 3, 4].map((item) => (
+                            <div
+                                key={item}
+                                style={{
+                                    display: 'grid',
+                                    gap: '8px',
+                                }}
+                            >
+                                <Skeleton
+                                    width="110px"
+                                    height="14px"
+                                />
+                                <Skeleton
+                                    width="100%"
+                                    height="44px"
+                                    rounded
+                                />
+                            </div>
+                        ))}
+
+                        <Skeleton
+                            width="160px"
+                            height="44px"
+                            rounded
+                        />
+                    </div>
+                </Card>
             </section>
         );
     }
