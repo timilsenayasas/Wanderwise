@@ -1,10 +1,18 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api, ApiError } from '../api/client';
 import TripMap from '../components/TripMap';
 import { fakeMap, googleMaps, resetGoogleMaps } from './mockGoogleMaps';
 
 vi.mock('@vis.gl/react-google-maps', () => import('./mockGoogleMaps'));
+
+vi.mock('../api/client', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } };
+});
+
+const HOTEL_PIN = { latitude: 41.9, longitude: -87.62 };
 
 function stop(id, name, start, end, latitude = 41.88, longitude = -87.62) {
   return {
@@ -58,6 +66,7 @@ function stopList() {
 
 beforeEach(() => {
   resetGoogleMaps();
+  Object.values(api).forEach((fn) => fn.mockReset());
   vi.stubEnv('VITE_GOOGLE_MAPS_KEY', 'test-browser-key');
   vi.stubEnv('VITE_GOOGLE_MAPS_MAP_ID', '');
 });
@@ -151,6 +160,96 @@ describe('Trip map', () => {
 
     expect(jazz).toHaveAttribute('aria-pressed', 'false');
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+describe('Your hotel on the map', () => {
+  function markerLabels() {
+    return screen.getAllByTestId('map-marker').map((marker) => marker.getAttribute('aria-label'));
+  }
+
+  it('shows the chosen hotel as its own, unnumbered pin', async () => {
+    api.get.mockResolvedValue(HOTEL_PIN);
+    render(<TripMap plan={PLAN} tripId={7} />);
+
+    const hotel = await screen.findByRole('button', { name: 'Marker Your hotel' });
+    expect(api.get).toHaveBeenCalledWith('/trips/7/lodging/pin');
+    expect(hotel.textContent).toBe(''); // a bed icon, not a number
+    expect(hotel.querySelector('.trip-map__hotel-pin')).not.toBeNull();
+    expect(markerLabels()).toEqual([
+      'Marker Your hotel',
+      'Marker 1. Art Institute',
+      'Marker 2. Navy Pier',
+      'Marker 3. Jazz club',
+    ]);
+    // The stops keep their numbers.
+    expect(stopList().getByRole('button', { name: /stop 1: art institute/i })).toBeInTheDocument();
+  });
+
+  it('includes the hotel when fitting the map', async () => {
+    const map = fakeMap();
+    api.get.mockResolvedValue(HOTEL_PIN);
+    render(<TripMap plan={PLAN} tripId={7} />);
+
+    await screen.findByRole('button', { name: 'Marker Your hotel' });
+
+    // The map refits just after the hotel renders, so wait for that fit.
+    await waitFor(() => expect(map.fitBounds.mock.calls.at(-1)[0].points).toHaveLength(4));
+    expect(map.fitBounds.mock.calls.at(-1)[0].points).toContainEqual({ lat: 41.9, lng: -87.62 });
+  });
+
+  it('lists the hotel first, so it can be picked with the keyboard', async () => {
+    const map = fakeMap();
+    api.get.mockResolvedValue(HOTEL_PIN);
+    render(<TripMap plan={PLAN} tripId={7} />);
+
+    const item = await screen.findByRole('button', { name: "Your hotel, where you're staying" });
+    expect(stopList().getAllByRole('button')[0]).toBe(item);
+
+    await userEvent.click(item);
+
+    expect(item).toHaveAttribute('aria-pressed', 'true');
+    const details = screen.getByRole('dialog', { name: 'Map details' });
+    expect(details).toHaveTextContent('Your hotel');
+    expect(details).toHaveTextContent("Where you're staying, from the Stay tab.");
+    expect(map.panTo).toHaveBeenCalledWith({ lat: 41.9, lng: -87.62 });
+  });
+
+  it('shows no hotel pin when none is chosen, or when asking fails', async () => {
+    api.get.mockResolvedValueOnce(null);
+    const { unmount } = render(<TripMap plan={PLAN} tripId={7} />);
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
+    expect(markerLabels()).not.toContain('Marker Your hotel');
+    unmount();
+
+    api.get.mockRejectedValueOnce(new ApiError('Something went wrong on our end. Please try again.', 500));
+    render(<TripMap plan={PLAN} tripId={7} />);
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    expect(markerLabels()).toHaveLength(3); // the stops still show
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows the hotel on the map even before there is a plan', async () => {
+    const map = fakeMap();
+    api.get.mockResolvedValue(HOTEL_PIN);
+    const onShowItinerary = vi.fn();
+    render(<TripMap plan={null} tripId={7} onShowItinerary={onShowItinerary} />);
+
+    expect(await screen.findByRole('button', { name: 'Marker Your hotel' })).toBeInTheDocument();
+    // The map effect runs just after the marker renders, so wait for it.
+    await waitFor(() => expect(map.setCenter).toHaveBeenCalledWith({ lat: 41.9, lng: -87.62 })); // one place: centered
+    expect(screen.queryByRole('heading', { name: 'No plan yet' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /go to itinerary/i }));
+    expect(onShowItinerary).toHaveBeenCalledTimes(1);
+  });
+
+  it('still says there is no plan when there is no hotel either', async () => {
+    api.get.mockResolvedValue(null);
+    render(<TripMap plan={null} tripId={7} onShowItinerary={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: 'No plan yet' })).toBeInTheDocument();
+    expect(screen.queryByTestId('maps-api')).not.toBeInTheDocument();
   });
 });
 
