@@ -207,6 +207,25 @@ describe('Cost lines', () => {
     expect(within(hotel).getByRole('button', { name: 'Delete Hotel, 1 night' })).toBeInTheDocument();
   });
 
+  it('sends the Stay line to the Stay tab instead of editing it here', async () => {
+    const stayLine = { ...HOTEL, description: 'Lodging', amount: 560, trip_date: null, from_stay: true };
+    api.get.mockResolvedValue(budgetResponse({ items: [PLAN_FOOD, stayLine, TRAIN] }));
+    const onShowStay = vi.fn();
+    render(<BudgetTab trip={TRIP} onShowItinerary={vi.fn()} onShowStay={onShowStay} />);
+    await screen.findByRole('heading', { name: 'Budget' });
+
+    // Its description and category are both "Lodging", so find it by its badge.
+    const line = screen.getByText('From Stay').closest('li');
+    expect(line).toHaveTextContent('$560');
+    expect(within(line).queryByRole('button', { name: /edit|delete/i })).not.toBeInTheDocument();
+
+    await userEvent.click(within(line).getByRole('button', { name: 'Change on the Stay tab' }));
+    expect(onShowStay).toHaveBeenCalledTimes(1);
+
+    // Other user lines still have their own buttons.
+    expect(within(lineItem('Airport train')).getByRole('button', { name: 'Edit Airport train' })).toBeInTheDocument();
+  });
+
   it('adds a line and reloads the totals', async () => {
     await openWith();
     api.post.mockResolvedValue(SHOP);

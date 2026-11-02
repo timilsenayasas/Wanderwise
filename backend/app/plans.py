@@ -12,7 +12,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.budget import PLAN_CURRENCY, to_budget_category, to_cents, to_dollars
-from app.models import PLAN_SOURCE, Activity, CostItem, Trip, TripDay
+from app.models import PLAN_SOURCE, Activity, CostItem, Trip, TripDay, TripHotelEstimate, TripLodging
 from app.schemas import (
     CostItemOut,
     ItineraryActivity,
@@ -61,8 +61,14 @@ def clear_plan(trip: Trip, db: Session) -> None:
 
 
 def clear_trip(trip: Trip, db: Session) -> None:
-    """Delete the plan and every cost line (plan and user), before deleting the trip. The caller commits."""
+    """Delete the plan, the lodging choice and hotel estimates, and every cost line, before deleting the trip.
+
+    The caller commits.
+    """
     clear_plan(trip, db)
+    db.execute(delete(TripHotelEstimate).where(TripHotelEstimate.trip_id == trip.id))
+    # Before the cost lines: trip_lodging points at its Lodging line.
+    db.execute(delete(TripLodging).where(TripLodging.trip_id == trip.id))
     db.execute(delete(CostItem).where(CostItem.trip_id == trip.id))
 
 

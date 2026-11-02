@@ -8,9 +8,10 @@ Where things live:
   schemas.py       request/response shapes (the API contract)
   plans.py         save/load a trip's generated plan (trip_days, activities, cost_items)
   budget.py        budget categories and a trip's cost totals
+  lodging.py       where to stay: hotel suggestions, budget fit, the traveler's choice
   security.py      passwords, JWT cookie, CurrentUser
   rate_limit.py    limits repeated failed logins
-  services/        outside integrations (Gemini, Google Geocoding; later weather)
+  services/        outside integrations (Gemini, Google Geocoding and Places; later weather)
   routers/         one file per feature: endpoints only
 
 Adding a feature: put endpoints in a new routers/<feature>.py and include it below.
@@ -22,13 +23,19 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.config import settings
+from app.database import SessionLocal
 from app.db_migrate import upgrade_database
-from app.routers import auth, budget, plan, preferences, trips
+from app.lodging import clear_stale_coords
+from app.routers import auth, budget, lodging, plan, preferences, trips
 
 
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     upgrade_database()
+    # Google's Places terms: hotel coordinates are kept at most 30 days.
+    with SessionLocal() as db:
+        clear_stale_coords(db)
+        db.commit()
     yield
 
 
@@ -53,3 +60,4 @@ app.include_router(preferences.router)
 app.include_router(trips.router)
 app.include_router(plan.router)
 app.include_router(budget.router)
+app.include_router(lodging.router)

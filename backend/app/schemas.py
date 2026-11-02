@@ -2,7 +2,7 @@
 
 import re
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -190,6 +190,8 @@ class CostItemOut(BaseModel):
     amount: float
     source: str
     trip_date: date | None
+    # The Where to stay choice's Lodging line: read-only here, changed on the Stay tab.
+    from_stay: bool = False
 
 
 class SavedPlanOut(BaseModel):
@@ -228,3 +230,132 @@ class BudgetOut(BaseModel):
     remaining: float | None  # budget - total; negative when over budget
     over_budget: bool | None
     items: list[CostItemOut]
+
+
+# --- Where to stay --------------------------------------------------------
+# How a hotel's stay total compares to the budget left for lodging (see lodging.py).
+LodgingFit = Literal["fits", "slightly_over", "over"]
+LodgingChoice = Literal["hotel", "own", "skip"]
+SkipReason = Literal["have_place", "not_needed"]
+
+
+class PhotoAuthorOut(BaseModel):
+    """Google requires every photo to credit its authors, linked to their profile."""
+
+    name: str
+    uri: str | None
+
+
+class HotelPhotoOut(BaseModel):
+    uri: str  # Google's image URL; short-lived, never stored
+    authors: list[PhotoAuthorOut]
+
+
+class HotelOut(BaseModel):
+    """A hotel's details, fetched fresh from Google Places each time (never stored)."""
+
+    place_id: str
+    name: str
+    area: str
+    address: str
+    rating: float | None
+    review_count: int | None
+    google_maps_uri: str | None
+    photo: HotelPhotoOut | None
+
+
+class HotelSuggestionOut(HotelOut):
+    nightly_estimate: float | None  # AI estimate in USD; None if it couldn't be estimated
+    stay_total: float | None  # nightly_estimate x the trip's nights
+    fit: LodgingFit | None  # None without a trip budget or an estimate
+    best_fit: bool  # true on at most one suggestion
+
+
+def _nightly_price(v: float | None) -> float | None:
+    if v is None:
+        return v
+    if v < 0:
+        raise ValueError("Nightly price can't be negative")
+    return round(v, 2)  # whole cents, like every cost line
+
+
+def _at_least_one_night(v: int | None) -> int | None:
+    if v is not None and v < 1:
+        raise ValueError("Nights must be at least 1")
+    return v  # the most is the trip's length (checked in lodging.py)
+
+
+class HotelChoiceIn(BaseModel):
+    """Pick a suggested hotel. Without a price, its estimate is used; without nights, the whole trip."""
+
+    choice: Literal["hotel"]
+    place_id: str = Field(min_length=1, max_length=255)
+    nightly_price: float | None = Field(default=None, allow_inf_nan=False)
+    nights: int | None = None
+
+    check_price = field_validator("nightly_price")(_nightly_price)
+    check_nights = field_validator("nights")(_at_least_one_night)
+
+
+class OwnHotelIn(BaseModel):
+    """A hotel the traveler found themselves."""
+
+    choice: Literal["own"]
+    name: str = Field(max_length=200)
+    nightly_price: float = Field(allow_inf_nan=False)
+    nights: int
+
+    check_price = field_validator("nightly_price")(_nightly_price)
+    check_nights = field_validator("nights")(_at_least_one_night)
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Enter your hotel's name")
+        return v
+
+
+class SkipLodgingIn(BaseModel):
+    """No hotel to book: "I already have a place" or "No hotel needed"."""
+
+    choice: Literal["skip"]
+    reason: SkipReason
+
+
+LodgingChoiceIn = Annotated[HotelChoiceIn | OwnHotelIn | SkipLodgingIn, Field(discriminator="choice")]
+
+
+class LodgingChoiceOut(BaseModel):
+    choice: LodgingChoice
+    skip_reason: SkipReason | None
+    place_id: str | None
+    # A picked hotel's details: None if Google couldn't be reached, and in PUT responses
+    # (the page already shows the suggestion, so it isn't fetched again).
+    hotel: HotelOut | None
+    custom_name: str | None  # the traveler's own hotel
+    nightly_price: float | None
+    nights: int | None
+    total: float | None  # nightly_price x nights, the Lodging cost line's amount
+    fit: LodgingFit | None  # total against the budget left for lodging; None for skips or without a budget
+    nights_exceed_trip: bool  # the trip's dates were shortened after choosing
+
+
+class LodgingOut(BaseModel):
+    trip_id: int
+    currency: str
+    nights: int  # the trip's nights, at least 1
+    lodging_budget_left: float | None  # trip budget minus everything except lodging
+    choice: LodgingChoiceOut | None
+    suggestions: list[HotelSuggestionOut]
+    suggestions_status: Literal["ok", "not_configured", "unavailable"]
+    # "no_budget": sorted by rating; "none_fit": no hotel fits what's left for lodging.
+    fit_note: Literal["no_budget", "none_fit"] | None
+
+
+class LodgingPinOut(BaseModel):
+    """The chosen hotel on the Map tab (null when there's nothing to pin)."""
+
+    latitude: float
+    longitude: float

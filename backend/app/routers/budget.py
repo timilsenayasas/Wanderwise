@@ -5,6 +5,7 @@ from sqlalchemy import select
 
 from app.budget import budget_summary
 from app.database import DbSession
+from app.lodging import stay_line_id
 from app.models import USER_SOURCE, CostItem, Trip
 from app.routers.trips import get_own_trip
 from app.schemas import BudgetOut, CostItemIn, CostItemOut
@@ -21,7 +22,10 @@ def get_budget(trip_id: int, user: CurrentUser, db: DbSession) -> BudgetOut:
 
 # --- The traveler's own cost lines ----------------------------------------
 def get_user_line(trip: Trip, item_id: int, db: DbSession) -> CostItem:
-    """The trip's cost line, or 404. Plan lines are 403: they change only by regenerating the plan."""
+    """The trip's cost line, or 404. Plan lines are 403: they change only by regenerating the plan.
+
+    The Where to stay choice's line is 409: it changes with the choice, on the Stay tab.
+    """
     item = db.scalar(select(CostItem).where(CostItem.id == item_id, CostItem.trip_id == trip.id))
     if item is None:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Cost line not found")
@@ -29,6 +33,11 @@ def get_user_line(trip: Trip, item_id: int, db: DbSession) -> CostItem:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Plan cost lines are read-only. Regenerate the plan to change them.",
+        )
+    if item.id == stay_line_id(trip, db):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="This line comes from your Where to stay choice. Change it on the Stay tab.",
         )
     return item
 

@@ -27,7 +27,7 @@ from sqlalchemy.orm import sessionmaker  # noqa: E402
 from app.database import Base, get_db  # noqa: E402
 from app.main import app  # noqa: E402
 from app.rate_limit import login_limiter  # noqa: E402
-from app.services import geocoding  # noqa: E402
+from app.services import geocoding, places  # noqa: E402
 
 VALID_USER = {"email": "Ada@Example.com", "password": "correct-horse-battery", "name": "Ada"}
 
@@ -41,6 +41,17 @@ def no_real_geocoding(monkeypatch):
         pytest.fail(f"Test tried to call the real Geocoding API for {query!r}")
 
     monkeypatch.setattr(geocoding, "_fetch", refuse)
+
+
+@pytest.fixture(autouse=True)
+def no_real_places(monkeypatch):
+    """A test that reaches Google Places fails. Tests that need hotels swap in a fake _fetch."""
+
+    def refuse(method, url, **kwargs):
+        # pytest.fail, not assert: the places service swallows ordinary exceptions, but not this one.
+        pytest.fail(f"Test tried to call the real Places API: {method} {url}")
+
+    monkeypatch.setattr(places, "_fetch", refuse)
 
 
 @pytest.fixture(autouse=True)
