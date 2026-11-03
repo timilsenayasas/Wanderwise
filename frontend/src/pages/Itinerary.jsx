@@ -19,6 +19,7 @@ import Tabs, { TabPanel, tabId } from '../components/Tabs';
 import { formatBudget, formatDateRange, tripLength } from '../lib/format';
 import './MyTrips.css'; // interest tags
 import './Itinerary.css';
+import WeatherTab from '../components/WeatherTab';
 
 // The map and hotel code is only downloaded when someone opens its tab.
 const TripMap = lazy(() => import('../components/TripMap'));
@@ -29,6 +30,7 @@ const TRIP_TABS = [
   { id: 'budget', label: 'Budget' },
   { id: 'stay', label: 'Stay' },
   { id: 'map', label: 'Map' },
+  { id: 'weather', label: 'Weather' },
 ];
 
 export default function Itinerary() {
@@ -405,6 +407,10 @@ export default function Itinerary() {
               </Suspense>
             </ErrorBoundary>
           )}
+        </TabPanel>
+
+        <TabPanel idPrefix="trip" id="weather" selected={tab}>
+          {tab === 'weather' && <WeatherTab trip={trip} />}
         </TabPanel>
       </div>
     </div>

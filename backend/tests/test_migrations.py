@@ -180,7 +180,7 @@ def test_existing_cost_items_become_plan_lines_with_fixed_categories(tmp_path):
                 {"category": category},
             )
 
-    upgrade_database(engine)
+    upgrade_to(engine, "93c75e18b68d")
 
     with engine.connect() as connection:
         rows = connection.execute(
@@ -316,3 +316,39 @@ def test_existing_plan_days_are_not_in_transit(tmp_path):
     engine.dispose()
 
     assert (in_transit, overrides) == (0, 0)
+
+
+def test_existing_profile_interests_convert_to_json_array(tmp_path):
+    """Old comma-separated interests become a JSON array."""
+    import json
+
+    engine = make_engine(tmp_path)
+    upgrade_to(engine, "ae137b358740")
+
+    with engine.begin() as connection:
+        connection.execute(
+            text(
+                "INSERT INTO users "
+                "(id, email, password_hash, name, created_at, updated_at) "
+                "VALUES (1, 'test@example.com', 'x', 'Test User', "
+                "'2026-10-01', '2026-10-01')"
+            )
+        )
+        connection.execute(
+            text(
+                "INSERT INTO preferences "
+                "(user_id, home_city, interests, travel_style) "
+                "VALUES (1, 'Dallas', 'food, museums', 'relaxed')"
+            )
+        )
+
+    upgrade_database(engine)
+
+    with engine.connect() as connection:
+        stored = connection.execute(
+            text("SELECT interests FROM preferences WHERE user_id = 1")
+        ).scalar_one()
+
+    engine.dispose()
+
+    assert json.loads(stored) == ["food", "museums"]
