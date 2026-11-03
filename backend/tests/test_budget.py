@@ -20,9 +20,10 @@ def by_category(budget: dict) -> dict[str, float]:
 
 
 def assert_adds_up(budget: dict) -> None:
-    """Category subtotals, and per-day totals plus lines on no day, both equal the grand total."""
+    """Category subtotals, per-day totals plus lines on no day, and the breakdown all equal the grand total."""
     assert round(sum(by_category(budget).values()), 2) == budget["total"]
     assert round(sum(day["amount"] for day in budget["per_day"]) + budget["not_by_day"], 2) == budget["total"]
+    assert round(sum(budget["breakdown"].values()), 2) == budget["total"]
 
 
 # --- Category mapping -----------------------------------------------------
@@ -87,6 +88,7 @@ def test_trip_with_no_plan_and_no_cost_lines_is_all_zeros(client):
         "per_day": [],
         "not_by_day": 0.0,
         "total": 0.0,
+        "breakdown": {"plan": 0.0, "lodging": 0.0, "other": 0.0},
         "budget": 1200.0,
         "remaining": 1200.0,
         "over_budget": False,
@@ -139,6 +141,40 @@ def test_user_lines_count_in_totals_and_on_their_day(client, monkeypatch):
     assert budget["not_by_day"] == 45.5
     assert budget["total"] == 442.5
     assert len(budget["items"]) == 4  # 2 plan lines + 2 user lines
+    assert_adds_up(budget)
+
+
+def test_breakdown_is_plan_plus_lodging_plus_other_costs(client, monkeypatch):
+    """What the Itinerary shows under its total: the same total as the Budget tab, in three parts."""
+    use_fake_gemini(monkeypatch, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+    client.post(f"/api/trips/{trip_id}/plan")  # 97.00 of plan lines
+    add_user_line(trip_id, "lodging", 300.0)  # a hotel typed on the Budget tab
+    add_user_line(trip_id, "transport", 45.5)
+    add_user_line(trip_id, "other", 10.25)
+
+    budget = get_budget(client, trip_id)
+
+    assert budget["breakdown"] == {"plan": 97.0, "lodging": 300.0, "other": 55.75}
+    assert budget["breakdown"]["lodging"] == by_category(budget)["lodging"]  # matches the Lodging row
+    assert budget["total"] == 452.75
+    assert_adds_up(budget)
+
+
+def test_breakdown_counts_the_stay_tabs_lodging_too(client):
+    register(client)
+    trip_id = create_trip(client)
+    r = client.put(  # the trip has one night
+        f"/api/trips/{trip_id}/lodging/stays/1",
+        json={"choice": "own", "name": "Lake House", "nightly_price": 80, "nights": 1},
+    )
+    assert r.status_code == 200, r.text
+    add_user_line(trip_id, "lodging", 0.1)  # cents add up exactly, too
+
+    budget = get_budget(client, trip_id)
+
+    assert budget["breakdown"] == {"plan": 0.0, "lodging": 80.1, "other": 0.0}
     assert_adds_up(budget)
 
 

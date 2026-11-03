@@ -12,8 +12,19 @@ import { formatCurrency } from '../lib/format';
 import { nightsText, stayTotal } from '../lib/lodging';
 import './OwnHotelForm.css';
 
-export default function OwnHotelForm({ title, withName = true, initial, maxNights, saveLabel, onSave, onCancel }) {
+export default function OwnHotelForm({
+  title,
+  level = 4,
+  lengthOf = 'your trip', // "this stay" on multi-city trips
+  withName = true,
+  initial,
+  maxNights,
+  saveLabel,
+  onSave,
+  onCancel,
+}) {
   const id = useId();
+  const Title = `h${level}`;
   const firstRef = useRef(null);
   const [values, setValues] = useState({
     name: initial?.custom_name ?? '',
@@ -42,7 +53,7 @@ export default function OwnHotelForm({ title, withName = true, initial, maxNight
     if (withName && !values.name.trim()) found.name = "Enter your hotel's name.";
     if (values.nightly_price.trim() === '' || Number.isNaN(price)) found.nightly_price = 'Enter a nightly price.';
     else if (price < 0) found.nightly_price = "The price can't be negative.";
-    if (!nightsOk) found.nights = `Nights must be between 1 and ${maxNights}, the length of your trip.`;
+    if (!nightsOk) found.nights = `Nights must be between 1 and ${maxNights}, the length of ${lengthOf}.`;
     return found;
   }
 
@@ -68,7 +79,7 @@ export default function OwnHotelForm({ title, withName = true, initial, maxNight
 
   return (
     <form className="own-hotel-form" onSubmit={handleSubmit} noValidate aria-labelledby={`${id}-title`}>
-      <h4 id={`${id}-title`}>{title}</h4>
+      <Title id={`${id}-title`}>{title}</Title>
 
       <div className="own-hotel-form__fields">
         {withName && (

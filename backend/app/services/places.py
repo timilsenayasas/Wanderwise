@@ -41,6 +41,8 @@ SEARCH_FIELD_MASK = ",".join(f"places.{name}" for name in HOTEL_FIELDS)
 DETAILS_FIELD_MASK = ",".join(HOTEL_FIELDS)
 # Location only keeps the coordinate refresh in Google's cheapest (Essentials) tier.
 LOCATION_FIELD_MASK = "location"
+# The name alone: displayName is billed as Place Details Pro, the cheapest tier that has it.
+NAME_FIELD_MASK = "displayName"
 
 # The most specific address part that reads as "where in town", first match wins.
 AREA_TYPES = ("neighborhood", "sublocality_level_1", "sublocality", "locality")
@@ -232,3 +234,12 @@ def get_location(place_id: str) -> Coordinates | None:
         return None
     body = _call("location", "GET", PLACE_URL.format(place_id=place_id), field_mask=LOCATION_FIELD_MASK)
     return _location(body) if body else None
+
+
+def get_name(place_id: str) -> str | None:
+    """Just the hotel's name (Itinerary: "Tonight: Hotel Thamel"), fetched fresh, never stored."""
+    if not settings.maps_api_key or not PLACE_ID_PATTERN.match(place_id):
+        return None
+    body = _call("name", "GET", PLACE_URL.format(place_id=place_id), field_mask=NAME_FIELD_MASK)
+    name = ((body or {}).get("displayName") or {}).get("text")
+    return name if isinstance(name, str) and name.strip() else None

@@ -1,81 +1,51 @@
 /*
- * Where to stay tab: the traveler's choice ("Your stay") and hotel suggestions near the destination,
- * from GET /trips/{id}/lodging. Searching Google is billed, so this loads when the tab is first
- * opened and again only on Refresh. Choosing, adding their own hotel, skipping and removing go
- * through PUT/DELETE /trips/{id}/lodging, which keep one Lodging line in the budget.
+ * Where to stay tab. GET /trips/{id}/lodging gives the trip's stays (runs of nights in one base city,
+ * from the plan) and their choices, without any Google calls. Each stay is a StaySection that searches
+ * its city only when it's first opened. A one-city trip has one stay and looks as it always has;
+ * a multi-city trip opens its first stay and lists the others as sections to open.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { api } from '../api/client';
 import Button from './Button';
 import Card from './Card';
-import HotelCard, { HotelCardSkeleton } from './HotelCard';
-import Icon from './Icon';
-import OwnHotelForm from './OwnHotelForm';
-import StayChoice, { CHANGE_BUTTON_ID, STAY_TITLE_ID } from './StayChoice';
+import StaySection, { StayHeader, SuggestionSkeletons } from './StaySection';
 import { formatCurrency, formatDateRange } from '../lib/format';
-import {
-  choiceName,
-  chosenSuggestionId,
-  fitNoteText,
-  lodgingLeftText,
-  nightsText,
-  SKIP_LABELS,
-  tripNights,
-} from '../lib/lodging';
-import { usePrefersReducedMotion } from '../lib/motion';
+import { lodgingLeftText, nightsText, SKIP_LABELS, STAY_NOTICE_ID, stayKey, tripNights } from '../lib/lodging';
 import './WhereToStay.css';
 
-const SKELETON_COUNT = 3;
-const SUGGESTIONS_TITLE_ID = 'stay-suggestions-title';
-const ADD_OWN_ID = 'stay-add-own';
+const TITLE_ID = 'stay-title';
 
-export default function WhereToStay({ trip }) {
-  const reducedMotion = usePrefersReducedMotion();
-  const [page, setPage] = useState(null);
-  const [choice, setChoice] = useState(null);
+export default function WhereToStay({ trip, nightsVersion = 0, hotelNames, onHotelNames }) {
+  const [overview, setOverview] = useState(null);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [loadError, setLoadError] = useState('');
-  const [refreshing, setRefreshing] = useState(false);
-  const [refreshError, setRefreshError] = useState('');
-  const [panel, setPanel] = useState(null); // null | 'own' | 'edit'
-  const [choosing, setChoosing] = useState(null); // place_id being saved
-  const [chooseError, setChooseError] = useState({ placeId: null, message: '' });
-  const [skipping, setSkipping] = useState(null); // skip reason being saved
-  const [actionError, setActionError] = useState('');
+  // Open sections, by stayKey() so a split's renumbering doesn't move them. null: just the first stay.
+  const [opened, setOpened] = useState(null);
   const [announcement, setAnnouncement] = useState('');
-  const [focusTarget, setFocusTarget] = useState(null); // element id to focus after the next render
   const latestRequest = useRef(0);
-  const nights = page?.nights ?? tripNights(trip);
+  const announce = useCallback((message) => setAnnouncement(message), []);
+  // A result worth seeing, not just hearing (a split's parts, which hotel a merge kept), shown just
+  // above the stay it's about (`key`, a stayKey) and read out through the announcer above.
+  const [notice, setNotice] = useState(null); // { text, key }
+  const showNotice = useCallback((text, key) => {
+    setNotice({ text, key });
+    setAnnouncement(text);
+  }, []);
 
-  const load = useCallback(
-    async ({ fresh = false } = {}) => {
-      const request = ++latestRequest.current;
-      if (fresh) setRefreshing(true);
-      else setStatus('loading');
-      setRefreshError('');
-      try {
-        const data = fresh
-          ? await api.post(`/trips/${trip.id}/lodging/refresh`)
-          : await api.get(`/trips/${trip.id}/lodging`);
-        if (request !== latestRequest.current) return;
-        setPage(data);
-        setChoice(data.choice);
-        setStatus('ready');
-        if (fresh) setAnnouncement('Suggestions refreshed.');
-      } catch (err) {
-        if (request !== latestRequest.current) return;
-        if (fresh) {
-          setRefreshError(err.message || "Couldn't refresh suggestions. Please try again.");
-        } else {
-          setLoadError(err.message || 'Could not load hotel suggestions.');
-          setStatus('error');
-        }
-      } finally {
-        if (fresh && request === latestRequest.current) setRefreshing(false);
-      }
-    },
-    [trip.id],
-  );
+  const load = useCallback(async ({ quiet = false } = {}) => {
+    const request = ++latestRequest.current;
+    if (!quiet) setStatus('loading');
+    try {
+      const data = await api.get(`/trips/${trip.id}/lodging`);
+      if (request !== latestRequest.current) return;
+      setOverview(data);
+      setStatus('ready');
+    } catch (err) {
+      if (request !== latestRequest.current) return;
+      setLoadError(err.message || 'Could not load where you are staying.');
+      setStatus('error');
+    }
+  }, [trip.id]);
 
   useEffect(() => {
     load();
@@ -84,305 +54,182 @@ export default function WhereToStay({ trip }) {
     };
   }, [load]);
 
-  // Move focus once the element exists, so keyboard and screen reader users follow the change.
+  // A night switched on the Itinerary changes the stays: reload them (free), without a spinner.
   useEffect(() => {
-    if (!focusTarget) return;
-    const element = document.getElementById(focusTarget);
-    element?.focus();
-    if (focusTarget === STAY_TITLE_ID) {
-      element?.scrollIntoView?.({ behavior: reducedMotion ? 'auto' : 'smooth', block: 'start' });
-    }
-    setFocusTarget(null);
-  }, [focusTarget, reducedMotion]);
+    if (nightsVersion > 0) load({ quiet: true });
+  }, [nightsVersion, load]);
 
-  const suggestions = page?.suggestions ?? [];
-  const chosenId = chosenSuggestionId(choice, suggestions);
-  const chosenSuggestion = suggestions.find((hotel) => hotel.place_id === chosenId) ?? null;
-  // PUT answers don't repeat Google's details, so a picked hotel's come from the suggestions.
-  const chosenHotel = choice?.choice === 'hotel' ? choice.hotel ?? chosenSuggestion : null;
-  const chosenEstimate = chosenSuggestion?.nightly_estimate;
+  const firstKey = overview?.stays[0] ? stayKey(overview.stays[0]) : null;
+  const openKeys = opened ?? new Set(firstKey ? [firstKey] : []);
 
-  async function saveChoice(body) {
-    const saved = await api.put(`/trips/${trip.id}/lodging`, body);
-    setChoice(saved);
-    return saved;
+  function toggle(key) {
+    setOpened((current) => {
+      const next = new Set(current ?? openKeys);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   }
 
-  function stayMessage(saved, hotel) {
-    if (saved.choice === 'skip') return `Saved: ${SKIP_LABELS[saved.skip_reason].toLowerCase()}.`;
-    return `${choiceName(saved, hotel)} is now your stay. ${formatCurrency(saved.total)} is in your budget.`;
+  // A new part from a split opens (and searches) straight away.
+  const openSection = useCallback(
+    (key) => setOpened((current) => new Set([...(current ?? (firstKey ? [firstKey] : [])), key])),
+    [firstKey],
+  );
+
+  if (status !== 'ready') {
+    // Until the overview arrives, look like the one-stay tab (most trips have one stay).
+    return (
+      <section className="stay" aria-labelledby={TITLE_ID}>
+        <StayHeader trip={trip} nights={tripNights(trip)} />
+        {status === 'error' ? (
+          <Card padding="lg" className="stay__error">
+            <p role="alert">{loadError}</p>
+            <div>
+              <Button variant="secondary" onClick={() => load()}>
+                Try again
+              </Button>
+            </div>
+          </Card>
+        ) : (
+          <SuggestionSkeletons destination={trip.destination} />
+        )}
+      </section>
+    );
   }
 
-  async function choose(hotel, nightlyPrice) {
-    setChoosing(hotel.place_id);
-    setChooseError({ placeId: null, message: '' });
-    try {
-      const saved = await saveChoice({
-        choice: 'hotel',
-        place_id: hotel.place_id,
-        ...(nightlyPrice != null ? { nightly_price: nightlyPrice } : {}),
-      });
-      setPanel(null);
-      setAnnouncement(stayMessage(saved, hotel));
-      setFocusTarget(STAY_TITLE_ID);
-    } catch (err) {
-      setChooseError({ placeId: hotel.place_id, message: err.message || 'Could not choose this hotel. Please try again.' });
-    } finally {
-      setChoosing(null);
-    }
-  }
-
-  async function saveOwn(values) {
-    const saved = await saveChoice({ choice: 'own', ...values });
-    setPanel(null);
-    setAnnouncement(stayMessage(saved));
-    setFocusTarget(STAY_TITLE_ID);
-  }
-
-  async function saveEdit(values) {
-    const body =
-      choice.choice === 'hotel' ? { choice: 'hotel', place_id: choice.place_id, ...values } : { choice: 'own', ...values };
-    const saved = await saveChoice(body);
-    setPanel(null);
-    setAnnouncement(`Your stay is updated. ${formatCurrency(saved.total)} is in your budget.`);
-    setFocusTarget(CHANGE_BUTTON_ID);
-  }
-
-  async function skip(reason) {
-    setSkipping(reason);
-    setActionError('');
-    try {
-      const saved = await saveChoice({ choice: 'skip', reason });
-      setPanel(null);
-      setAnnouncement(stayMessage(saved));
-      setFocusTarget(STAY_TITLE_ID);
-    } catch (err) {
-      setActionError(err.message || 'Could not save that. Please try again.');
-    } finally {
-      setSkipping(null);
-    }
-  }
-
-  async function remove() {
-    await api.delete(`/trips/${trip.id}/lodging`);
-    setChoice(null);
-    setPanel(null);
-    setAnnouncement('Your stay was removed, along with its Lodging cost.');
-    setFocusTarget(SUGGESTIONS_TITLE_ID);
-  }
-
-  function openOwn() {
-    setPanel('own');
-    setActionError('');
-  }
-
-  function closePanel() {
-    setFocusTarget(panel === 'edit' ? CHANGE_BUTTON_ID : ADD_OWN_ID);
-    setPanel(null);
-  }
-
-  const editForm =
-    panel === 'edit' && choice && choice.choice !== 'skip' ? (
-      <OwnHotelForm
-        title="Change your stay"
-        withName={choice.choice === 'own'}
-        initial={choice}
-        maxNights={nights}
-        saveLabel="Save changes"
-        onSave={saveEdit}
-        onCancel={closePanel}
-      />
-    ) : null;
+  const { stays, earlier_choices: earlier } = overview;
+  const oneStay = stays.length === 1;
+  // Above its stay when that stay is still here; otherwise at the top.
+  const noticeAtStay = Boolean(notice && stays.some((stay) => stayKey(stay) === notice.key));
+  const noticeBox = notice && (
+    <div id={STAY_NOTICE_ID} className="stay__notice">
+      <p>{notice.text}</p>
+      <Button variant="ghost" size="sm" onClick={() => setNotice(null)}>
+        Dismiss
+      </Button>
+    </div>
+  );
 
   return (
-    <section className="stay" aria-labelledby="stay-title">
-      <header className="stay__header">
-        <div className="stay__heading">
-          <h2 id="stay-title">Where to stay in {trip.destination}</h2>
-          <p className="stay__facts">
-            {formatDateRange(trip.start_date, trip.end_date)} · {nightsText(nights)}
-            {page && <> · {lodgingLeftText(page.lodging_budget_left)}</>}
-          </p>
-        </div>
-        {status === 'ready' && page.suggestions_status === 'ok' && (
-          <Button variant="secondary" size="sm" onClick={() => load({ fresh: true })} loading={refreshing} loadingText="Refreshing…">
-            <Icon name="refresh" size={18} /> Refresh suggestions
-          </Button>
-        )}
-      </header>
+    <section className="stay" aria-labelledby={TITLE_ID}>
+      {!oneStay && (
+        <header className="stay__header">
+          <div className="stay__heading">
+            <h2 id={TITLE_ID} tabIndex={-1}>
+              Where to stay
+            </h2>
+            <p className="stay__facts">
+              {formatDateRange(trip.start_date, trip.end_date)} · {nightsText(tripNights(trip))} ·{' '}
+              {lodgingLeftText(overview.lodging_budget_left)}
+            </p>
+            <p className="text-muted">
+              {stays.length > 1
+                ? `Your trip has ${stays.length} stays. Each has its own hotel and its own Lodging line in your budget.`
+                : 'Every night of this trip is spent travelling, so there is nowhere to book. ' +
+                  'If that is wrong, switch a night off on the Itinerary.'}
+            </p>
+          </div>
+        </header>
+      )}
 
       <p className="visually-hidden" role="status">
         {announcement}
       </p>
 
-      {status === 'error' ? (
-        <Card padding="lg" className="stay__error">
-          <p role="alert">{loadError}</p>
-          <div>
-            <Button variant="secondary" onClick={() => load()}>
-              Try again
-            </Button>
-          </div>
-        </Card>
-      ) : (
-        <>
-          {choice && (
-            <StayChoice
-              key={`${choice.choice}-${choice.place_id ?? choice.custom_name ?? choice.skip_reason}`}
-              choice={choice}
-              hotel={chosenHotel}
-              estimate={chosenEstimate}
-              tripNights={nights}
-              editForm={editForm}
-              onChange={() => setPanel('edit')}
-              onRemove={remove}
-              onShowSuggestions={() => setFocusTarget(SUGGESTIONS_TITLE_ID)}
-            />
-          )}
+      {notice && !noticeAtStay && noticeBox}
 
-          <section className="stay__suggestions" aria-labelledby={SUGGESTIONS_TITLE_ID}>
-            <div className="stay__bar">
-              <h3 id={SUGGESTIONS_TITLE_ID} tabIndex={-1}>
-                Suggested hotels
-              </h3>
-              {page?.fit_note === null && suggestions.length > 0 && (
-                <span className="text-muted stay__sort">Sorted by best fit for your budget</span>
-              )}
-            </div>
+      {stays.map((stay, index) => (
+        // By city and first night: a new plan or switched night that changes those is a new section
+        // (no stale hotels), while a split's renumbering keeps the others as they are (no new search).
+        <Fragment key={stayKey(stay)}>
+          {/* Always this slot, notice or not, so the section below is never remounted by it. */}
+          {noticeAtStay && notice.key === stayKey(stay) && noticeBox}
+          <StaySection
+            trip={trip}
+            stay={stay}
+            previousStay={stays[index - 1] ?? null}
+            lodgingLeft={overview.lodging_budget_left}
+            oneStay={oneStay}
+            open={oneStay || openKeys.has(stayKey(stay))}
+            onToggle={() => toggle(stayKey(stay))}
+            onOpenSection={openSection}
+            onOverview={setOverview}
+            hotelNames={hotelNames}
+            onHotelNames={onHotelNames}
+            onNotice={showNotice}
+            announce={announce}
+          />
+        </Fragment>
+      ))}
 
-            {page?.fit_note && suggestions.length > 0 && (
-              <p className={`stay__note stay__note--${page.fit_note}`}>
-                {fitNoteText(page.fit_note, page.lodging_budget_left)}
-              </p>
-            )}
-            {refreshError && (
-              <p className="stay__alert" role="alert">
-                {refreshError}
-              </p>
-            )}
-
-            <Suggestions
-              status={status}
-              page={page}
-              refreshing={refreshing}
-              destination={trip.destination}
-              nights={nights}
-              chosenId={chosenId}
-              choosing={choosing}
-              chooseError={chooseError}
-              onChoose={choose}
-              onAddOwn={openOwn}
-            />
-          </section>
-
-          <Card tone="sand" padding="md" className="stay__elsewhere" as="section" aria-labelledby="stay-elsewhere-title">
-            <h3 id="stay-elsewhere-title">Staying somewhere else?</h3>
-            {panel === 'own' ? (
-              <OwnHotelForm
-                title="Add my own hotel"
-                maxNights={nights}
-                saveLabel="Save my hotel"
-                onSave={saveOwn}
-                onCancel={closePanel}
-              />
-            ) : (
-              <div className="stay__elsewhere-actions">
-                <Button id={ADD_OWN_ID} variant="secondary" onClick={openOwn}>
-                  Add my own hotel
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => skip('have_place')}
-                  loading={skipping === 'have_place'}
-                  loadingText="Saving…"
-                  aria-pressed={choice?.skip_reason === 'have_place'}
-                >
-                  I already have a place
-                </Button>
-                <Button
-                  variant="ghost"
-                  onClick={() => skip('not_needed')}
-                  loading={skipping === 'not_needed'}
-                  loadingText="Saving…"
-                  aria-pressed={choice?.skip_reason === 'not_needed'}
-                >
-                  No hotel needed
-                </Button>
-              </div>
-            )}
-            {actionError && (
-              <p className="stay__alert" role="alert">
-                {actionError}
-              </p>
-            )}
-          </Card>
-        </>
+      {earlier.length > 0 && (
+        <EarlierChoices trip={trip} earlier={earlier} onOverview={setOverview} announce={announce} />
       )}
     </section>
   );
 }
 
-function Suggestions({ status, page, refreshing, destination, nights, chosenId, choosing, chooseError, onChoose, onAddOwn }) {
-  if (status === 'loading' || refreshing) {
-    const count = refreshing ? Math.max(page?.suggestions.length ?? 0, 1) : SKELETON_COUNT;
-    return (
-      <>
-        <p className="visually-hidden" role="status">
-          Finding hotels in {destination}…
-        </p>
-        <ul className="stay__grid" role="list">
-          {Array.from({ length: count }, (_, i) => (
-            <li key={i}>
-              <HotelCardSkeleton />
-            </li>
-          ))}
-        </ul>
-      </>
-    );
-  }
+/** Choices for stays a regenerated plan no longer has. Their Lodging lines stay until removed here. */
+function EarlierChoices({ trip, earlier, onOverview, announce }) {
+  const [confirming, setConfirming] = useState(null); // stay number
+  const [removing, setRemoving] = useState(false);
+  const [error, setError] = useState('');
 
-  if (page.suggestions_status !== 'ok' || page.suggestions.length === 0) {
-    const reason = {
-      not_configured: "MAPS_API_KEY isn't set in backend/.env.",
-      unavailable: "Google Places didn't answer. Check the server log.",
-    }[page.suggestions_status];
-    return (
-      <div className="stay__empty">
-        <Icon name="bed" size={32} />
-        <p>
-          {page.suggestions_status === 'ok'
-            ? `We couldn't find hotels in ${destination}. You can still add your own.`
-            : "We can't suggest hotels right now. You can still add your own."}
-          {/* Only in development, for whoever is setting up the keys. */}
-          {import.meta.env.DEV && reason && <span className="stay__dev-hint"> {reason}</span>}
-        </p>
-        <Button variant="secondary" onClick={onAddOwn}>
-          Add my own hotel
-        </Button>
-      </div>
-    );
+  async function remove(number) {
+    setRemoving(true);
+    setError('');
+    try {
+      onOverview(await api.delete(`/trips/${trip.id}/lodging/stays/${number}`));
+      setConfirming(null);
+      announce('Removed, along with its Lodging cost.');
+      document.getElementById(TITLE_ID)?.focus();
+    } catch (err) {
+      setError(err.message || 'Could not remove it. Please try again.');
+    } finally {
+      setRemoving(false);
+    }
   }
 
   return (
-    <>
-      {/* role="list" because Safari drops list semantics when list-style is none. */}
-      <ul className="stay__grid" role="list">
-        {page.suggestions.map((hotel, index) => (
-          <li key={hotel.place_id}>
-            <HotelCard
-              hotel={hotel}
-              nights={nights}
-              index={index}
-              chosen={hotel.place_id === chosenId}
-              saving={choosing === hotel.place_id}
-              error={chooseError.placeId === hotel.place_id ? chooseError.message : ''}
-              onChoose={(price) => onChoose(hotel, price)}
-            />
-          </li>
-        ))}
+    <Card as="section" tone="sand" padding="md" className="stay__earlier" aria-labelledby="stay-earlier-title">
+      <h3 id="stay-earlier-title">No longer in your plan</h3>
+      <p className="text-muted">
+        Your new plan doesn&apos;t have these stays. Their costs are still in your budget until you remove them.
+      </p>
+      <ul className="stay__earlier-list" role="list">
+        {earlier.map(({ number, city, choice }) => {
+          const what =
+            choice.choice === 'skip'
+              ? SKIP_LABELS[choice.skip_reason]
+              : `${choice.choice === 'hotel' ? 'Hotel' : choice.custom_name} · ${formatCurrency(choice.total)}`;
+          const label = `${city ?? `Stay ${number}`}: ${what}`;
+          return (
+            <li key={number} className="stay__earlier-item">
+              <span>{label}</span>
+              {confirming === number ? (
+                <span className="stay__earlier-actions">
+                  <Button variant="accent" size="sm" onClick={() => remove(number)} loading={removing} loadingText="Removing…">
+                    Remove
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={() => setConfirming(null)} disabled={removing}>
+                    Cancel
+                  </Button>
+                </span>
+              ) : (
+                <Button variant="ghost" size="sm" onClick={() => setConfirming(number)} aria-label={`Remove ${label}`}>
+                  Remove
+                </Button>
+              )}
+            </li>
+          );
+        })}
       </ul>
-      {/* Google's attribution for Places content shown outside a Google map. */}
-      <p className="stay__attribution">Google Maps</p>
-    </>
+      {error && (
+        <p className="stay__alert" role="alert">
+          {error}
+        </p>
+      )}
+    </Card>
   );
 }

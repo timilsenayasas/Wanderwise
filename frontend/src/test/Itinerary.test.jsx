@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { api, ApiError } from '../api/client';
 import Itinerary from '../pages/Itinerary';
 import { budgetResponse, emptyBudget, HOTEL } from './budgetFixtures';
-import { lodgingPage } from './lodgingFixtures';
+import { DRAKE, hotelChoice, lodgingPage, nightsOf } from './lodgingFixtures';
 import { googleMaps, resetGoogleMaps } from './mockGoogleMaps';
 
 vi.mock('@vis.gl/react-google-maps', () => import('./mockGoogleMaps'));
@@ -65,16 +65,39 @@ function locatedPlan() {
   return plan;
 }
 
-/** GET /trips/7 returns TRIP; /plan `plan` (null = none saved yet); /budget a budget; /lodging hotels; /lodging/pin `pin`. */
-function mockLoad(plan, trip = TRIP, budget = budgetResponse(), lodging = lodgingPage({ nights: 1 }), pin = null) {
+/**
+ * GET /trips/7 returns TRIP; /plan `plan` (null = none saved yet); /budget a budget;
+ * /lodging and /lodging/stays/1 a one-stay `lodging` scenario; /lodging/pins `pins`;
+ * /lodging/names?… `names`.
+ */
+function mockLoad(
+  plan,
+  trip = TRIP,
+  budget = budgetResponse(),
+  lodging = lodgingPage({ nights: 1 }),
+  pins = [],
+  names = [],
+) {
   api.get.mockImplementation((path) => {
     if (path.endsWith('/plan')) return Promise.resolve(plan);
     if (path.endsWith('/budget')) return Promise.resolve(budget);
-    if (path.endsWith('/lodging')) return Promise.resolve(lodging);
-    if (path.endsWith('/lodging/pin')) return Promise.resolve(pin);
+    if (path.endsWith('/lodging')) return Promise.resolve(lodging.overview);
+    if (path.endsWith('/lodging/stays/1')) return Promise.resolve(lodging.page);
+    if (path.endsWith('/lodging/pins')) return Promise.resolve(pins);
+    if (path.includes('/lodging/names?')) return Promise.resolve(names);
     return Promise.resolve(trip);
   });
 }
+
+/** A two-day plan (Nov 5 – 6: one night) and a one-stay trip whose hotel p1 (The Drake) is picked. */
+function pickedHotelTrip() {
+  const plan = savedPlan('Art Institute of Chicago');
+  plan.days.push({ ...plan.days[0], id: 2, day_number: 2, date: '2026-11-06' });
+  const lodging = lodgingPage({ nights: 1, choice: hotelChoice('p1', 140, 1, { hotel: DRAKE }) });
+  return { plan, lodging };
+}
+
+const nameRequests = () => api.get.mock.calls.map(([path]) => path).filter((path) => path.includes('/lodging/names'));
 
 function LocationState() {
   const location = useLocation();
@@ -201,14 +224,34 @@ describe('Trip page plan', () => {
 });
 
 describe('Trip page tabs', () => {
-  it('opens on the Itinerary tab without loading the budget', async () => {
+  it('opens on the Itinerary tab', async () => {
     mockLoad(savedPlan('Art Institute of Chicago'));
     renderTrip();
 
     expect(await screen.findByText('Art Institute of Chicago')).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Itinerary' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: 'Budget' })).toHaveAttribute('aria-selected', 'false');
-    expect(api.get).not.toHaveBeenCalledWith('/trips/7/budget');
+  });
+
+  it("shows the Budget tab's total on the Itinerary, with what it's made of", async () => {
+    mockLoad(savedPlan('Art Institute of Chicago')); // its plan alone is $32; the budget is $442.50
+    renderTrip();
+
+    expect(await screen.findByText('plan $97 + lodging $300 + your other costs $45.50')).toBeInTheDocument();
+    expect(screen.getByText('Estimated total').nextElementSibling).toHaveTextContent('$442.50');
+    expect(api.get).toHaveBeenCalledWith('/trips/7/budget'); // the same numbers as the Budget tab
+  });
+
+  it("falls back to the plan's own total, and says so, when the budget can't load", async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    const loadNormally = api.get.getMockImplementation();
+    api.get.mockImplementation((path) =>
+      path.endsWith('/budget') ? Promise.reject(new ApiError('Something went wrong.', 500)) : loadNormally(path),
+    );
+    renderTrip();
+
+    expect(await screen.findByText(/plan only/i)).toBeInTheDocument();
+    expect(screen.getByText('Estimated total').nextElementSibling).toHaveTextContent('$32');
   });
 
   it('switches to Budget on click and keeps the tab in the URL', async () => {
@@ -294,9 +337,10 @@ describe('Trip page tabs', () => {
     mockLoad(savedPlan('Art Institute of Chicago'));
     renderTrip(undefined, '?tab=stay');
 
-    expect(await screen.findByRole('heading', { name: 'Where to stay in Chicago, IL' })).toBeInTheDocument();
-    expect(screen.getByRole('tab', { name: 'Stay' })).toHaveAttribute('aria-selected', 'true');
+    // Hotels first: the loading view's heading is replaced by the stay's own once the overview arrives.
     expect(await screen.findByRole('article', { name: 'The Drake' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL' })).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Stay' })).toHaveAttribute('aria-selected', 'true');
     expect(api.get).toHaveBeenCalledWith('/trips/7/lodging');
   });
 
@@ -304,7 +348,8 @@ describe('Trip page tabs', () => {
     mockLoad(savedPlan('Art Institute of Chicago'));
     renderTrip();
     await screen.findByText('Art Institute of Chicago');
-    expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging');
+    // The Itinerary asks for the free overview (where you sleep), but nothing searches Google yet.
+    expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging/stays/1');
 
     await userEvent.click(screen.getByRole('tab', { name: 'Stay' }));
     expect(await screen.findByRole('article', { name: 'The Drake' })).toBeInTheDocument();
@@ -314,7 +359,43 @@ describe('Trip page tabs', () => {
     await userEvent.click(screen.getByRole('tab', { name: 'Stay' }));
 
     expect(screen.getByRole('article', { name: 'The Drake' })).toBeVisible();
-    expect(api.get.mock.calls.filter(([path]) => path === '/trips/7/lodging')).toHaveLength(1);
+    // One (billed) search, however often the tab is reopened.
+    expect(api.get.mock.calls.filter(([path]) => path === '/trips/7/lodging/stays/1')).toHaveLength(1);
+  });
+
+  it('says where you sleep each night, and leads to the Stay tab to choose', async () => {
+    const plan = savedPlan('Art Institute of Chicago');
+    plan.days.push({ ...plan.days[0], id: 2, day_number: 2, date: '2026-11-06' }); // Nov 5 – 6: one night
+    mockLoad(plan);
+    renderTrip();
+
+    const label = await screen.findByText('Tonight in Chicago, IL:');
+    expect(label.closest('p')).toHaveTextContent('Tonight in Chicago, IL: no hotel chosen yet');
+    expect(api.get).toHaveBeenCalledWith('/trips/7/lodging'); // the free overview, no search
+    expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging/stays/1');
+
+    await userEvent.click(screen.getByRole('button', { name: 'Choose where to stay' }));
+
+    const stay = screen.getByRole('tab', { name: 'Stay' });
+    expect(stay).toHaveAttribute('aria-selected', 'true');
+    expect(stay).toHaveFocus();
+  });
+
+  it('switches a night to travelling and shows the answer straight away', async () => {
+    const plan = savedPlan('Art Institute of Chicago');
+    plan.days.push({ ...plan.days[0], id: 2, day_number: 2, date: '2026-11-06' }); // Nov 5 – 6: one night
+    const before = lodgingPage({ nights: 1 });
+    before.overview.nights = nightsOf(['2026-11-05']);
+    mockLoad(plan, TRIP, budgetResponse(), before);
+    api.put.mockResolvedValue({ ...before.overview, nights: nightsOf(['2026-11-05'], ['2026-11-05'], ['2026-11-05']), stays: [] });
+    renderTrip();
+
+    await userEvent.click(await screen.findByRole('button', { name: /i'm travelling this night/i }));
+
+    expect(api.put).toHaveBeenCalledWith('/trips/7/nights/2026-11-05', { in_transit: true });
+    expect(await screen.findByText('in transit', { exact: false })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /i'm travelling this night/i })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('button', { name: "Use the plan's" })).toBeInTheDocument();
   });
 
   it("the Budget tab's Stay line leads to the Stay tab", async () => {
@@ -327,7 +408,8 @@ describe('Trip page tabs', () => {
     const stay = screen.getByRole('tab', { name: 'Stay' });
     expect(stay).toHaveAttribute('aria-selected', 'true');
     expect(stay).toHaveFocus();
-    expect(await screen.findByRole('heading', { name: 'Where to stay in Chicago, IL' })).toBeVisible();
+    await screen.findByRole('article', { name: 'The Drake' }); // loaded: the heading won't be swapped out now
+    expect(screen.getByRole('heading', { name: 'Where to stay in Chicago, IL' })).toBeVisible();
   });
 
   it('opens the Map tab from ?tab=map', async () => {
@@ -341,13 +423,15 @@ describe('Trip page tabs', () => {
 
   it('shows the hotel chosen on the Stay tab as a pin on the Map tab', async () => {
     vi.stubEnv('VITE_GOOGLE_MAPS_KEY', 'test-browser-key');
-    mockLoad(locatedPlan(), TRIP, budgetResponse(), lodgingPage(), { latitude: 41.9, longitude: -87.62 });
+    mockLoad(locatedPlan(), TRIP, budgetResponse(), lodgingPage(), [
+      { stay_number: 1, city: 'Chicago, IL', latitude: 41.9, longitude: -87.62 },
+    ]);
     renderTrip(undefined, '?tab=map');
 
     expect(await screen.findByRole('button', { name: 'Marker Your hotel' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Marker 1. Art Institute of Chicago' })).toBeInTheDocument();
-    expect(api.get).toHaveBeenCalledWith('/trips/7/lodging/pin');
-    expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging'); // the map never searches for hotels
+    expect(api.get).toHaveBeenCalledWith('/trips/7/lodging/pins');
+    expect(api.get).not.toHaveBeenCalledWith('/trips/7/lodging/stays/1'); // the map never searches for hotels
   });
 
   it('keeps the other tabs working when the map fails to load', async () => {
@@ -391,5 +475,90 @@ describe('Trip page tabs', () => {
 
     await waitFor(() => expect(screen.getByTestId('state')).toHaveTextContent('null'));
     expect(screen.getByTestId('search')).toHaveTextContent('?tab=budget');
+  });
+});
+
+describe("Hotel names on the Itinerary", () => {
+  it("looks up a picked hotel's name, then says where you sleep by name", async () => {
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging, [], [{ stay_number: 1, place_id: 'p1', name: 'Hotel Thamel' }]);
+    renderTrip();
+
+    const label = await screen.findByText('Tonight:');
+    await waitFor(() => expect(label.closest('p')).toHaveTextContent('Tonight: Hotel Thamel'));
+    expect(nameRequests()).toEqual(['/trips/7/lodging/names?stays=1']);
+    expect(screen.getByText('Hotel names: Google Maps')).toBeInTheDocument(); // Google's attribution
+  });
+
+  it('reuses names the Stay tab already loaded: no lookup', async () => {
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging);
+    renderTrip(undefined, '?tab=stay');
+    await screen.findByRole('article', { name: 'The Drake' }); // the Stay tab's search brought the names
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+
+    const label = await screen.findByText('Tonight:');
+    expect(label.closest('p')).toHaveTextContent('Tonight: The Drake');
+    expect(nameRequests()).toEqual([]);
+  });
+
+  it('asks once per visit, not every time the Itinerary is shown', async () => {
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging, [], [{ stay_number: 1, place_id: 'p1', name: 'Hotel Thamel' }]);
+    renderTrip();
+    await screen.findByText('Hotel names: Google Maps');
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Budget' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+    await screen.findByText('Hotel names: Google Maps');
+
+    expect(nameRequests()).toHaveLength(1);
+  });
+
+  it('keeps "your hotel in …" when the name lookup fails', async () => {
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging);
+    const loadNormally = api.get.getMockImplementation();
+    api.get.mockImplementation((path) =>
+      path.includes('/lodging/names') ? Promise.reject(new ApiError('Something went wrong.', 500)) : loadNormally(path),
+    );
+    renderTrip();
+
+    await waitFor(() => expect(nameRequests()).toHaveLength(1));
+    expect((await screen.findByText('Tonight:')).closest('p')).toHaveTextContent('Tonight: your hotel in Chicago, IL');
+    expect(screen.queryByText('Hotel names: Google Maps')).toBeNull();
+  });
+
+  it('never puts names in localStorage or sessionStorage', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem');
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging, [], [{ stay_number: 1, place_id: 'p1', name: 'Hotel Thamel' }]);
+    renderTrip();
+
+    await screen.findByText('Hotel names: Google Maps');
+
+    expect(setItem).not.toHaveBeenCalled();
+  });
+
+  it('asks again if you leave while a name is loading, and shows it when you come back', async () => {
+    const { plan, lodging } = pickedHotelTrip();
+    mockLoad(plan, TRIP, budgetResponse(), lodging);
+    const loadNormally = api.get.getMockImplementation();
+    let lookups = 0;
+    api.get.mockImplementation((path) => {
+      if (!path.includes('/lodging/names')) return loadNormally(path);
+      lookups += 1;
+      // The first lookup never answers (you've left before it would); the second one does.
+      return lookups === 1 ? new Promise(() => {}) : Promise.resolve([{ stay_number: 1, place_id: 'p1', name: 'Hotel Thamel' }]);
+    });
+    renderTrip();
+    await waitFor(() => expect(nameRequests()).toHaveLength(1));
+
+    await userEvent.click(screen.getByRole('tab', { name: 'Budget' }));
+    await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
+
+    expect(await screen.findByText('Hotel names: Google Maps')).toBeInTheDocument();
+    expect(nameRequests()).toHaveLength(2);
   });
 });

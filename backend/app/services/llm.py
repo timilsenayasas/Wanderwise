@@ -69,6 +69,12 @@ REQUIREMENTS
 - Include estimated cost for each activity.
 - estimated_cost is the total for all travelers, not per person.
 - Include estimated travel time to the next activity.
+- Give every day a base_city: the city or town where the traveler sleeps that night (on the
+  last day, where they are). Write it like the destination, e.g. "Chitwan, Nepal". If the trip
+  stays in one place, use the same base_city every day. Only change base_city when moving
+  somewhere far enough to need a different hotel.
+- Set in_transit to true for a day whose night is spent travelling (an overnight flight, train
+  or bus) so no hotel is needed; then base_city is where the traveler arrives. Otherwise false.
 - Keep the total estimated cost within the traveler's budget when reasonably possible.
 - All monetary values must be in US dollars (USD).
 - Costs are estimates, not guaranteed prices.
@@ -86,6 +92,8 @@ Use exactly this JSON structure:
   "days": [
     {{
       "date": "YYYY-MM-DD",
+      "base_city": "string",
+      "in_transit": false,
       "activities": [
         {{
           "start_time": "HH:MM",

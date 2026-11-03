@@ -286,3 +286,23 @@ def test_get_location_failure_or_no_key_gives_none(monkeypatch):
     monkeypatch.setattr(settings, "maps_api_key", "")
     assert places.get_hotel("p1") is None
     assert places.get_location("p1") is None
+
+
+def test_get_name_asks_only_for_the_name(monkeypatch):
+    sent = fake_places(monkeypatch, details={"p1": {"displayName": {"text": "Hotel Thamel", "languageCode": "en"}}})
+
+    assert places.get_name("p1") == "Hotel Thamel"
+    assert sent[0]["field_mask"] == "displayName"  # Place Details Pro: the cheapest tier with a name
+    assert sent[0]["url"] == "https://places.googleapis.com/v1/places/p1"
+
+
+def test_get_name_failure_blank_bad_id_or_no_key_gives_none(monkeypatch):
+    sent = fake_places(
+        monkeypatch, details={"p1": httpx.ConnectError("down"), "p2": {"displayName": {"text": "  "}}, "p3": {}}
+    )
+
+    assert [places.get_name(place_id) for place_id in ("p1", "p2", "p3", "../p1")] == [None, None, None, None]
+    assert len(sent) == 3  # the bad id was never sent
+
+    monkeypatch.setattr(settings, "maps_api_key", "")
+    assert places.get_name("p1") is None

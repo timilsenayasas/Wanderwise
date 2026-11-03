@@ -7,7 +7,7 @@ Changing a table here? Create a migration afterwards (see README, "Database chan
 
 from datetime import date, datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text, UniqueConstraint, false
 import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy import JSON
@@ -134,6 +134,16 @@ class TripDay(Base):
     notes: Mapped[str | None] = mapped_column(
         Text, nullable=True
     )
+    # Where the traveler sleeps that night (from the AI plan), e.g. "Chitwan, Nepal".
+    # Empty for plans saved before multi-city trips: those use the trip's destination.
+    base_city: Mapped[str | None] = mapped_column(
+        String(120), nullable=True
+    )
+    # The AI plan says this night is spent travelling (overnight flight, train, bus): no hotel.
+    # The traveler can override it per night (TripNightOverride), which outlives regenerating.
+    in_transit: Mapped[bool] = mapped_column(
+        Boolean, default=False, server_default=false(), nullable=False
+    )
 
 
 class Activity(Base):
@@ -233,22 +243,34 @@ LODGING_SKIP = "skip"
 
 
 class TripLodging(Base):
-    """Where to stay: the traveler's lodging choice, one row per trip.
+    """Where to stay: the traveler's lodging choice, one row per stay of a trip.
+
+    A stay is a run of nights in one base city, worked out from the plan (lodging.py). Choices
+    are matched to stays by number; `city` records the stay's city when the choice was made,
+    so a regenerated plan that moved things around can be pointed out instead of guessed.
 
     Google's Places terms: only the place ID may be kept. Names, ratings and photos are
     fetched fresh when shown, and coordinates are refreshed or cleared after 30 days.
     """
 
     __tablename__ = "trip_lodging"
+    __table_args__ = (UniqueConstraint("trip_id", "stay_number", name="uq_trip_lodging_trip_stay"),)
 
     id: Mapped[int] = mapped_column(
         Integer, primary_key=True
     )
     trip_id: Mapped[int] = mapped_column(
         ForeignKey("trips.id", ondelete="CASCADE"),
-        unique=True,
         nullable=False,
         index=True,
+    )
+    # 1 for the first stay. One-city trips (and every choice made before multi-city) are stay 1.
+    stay_number: Mapped[int] = mapped_column(
+        Integer, default=1, server_default="1", nullable=False
+    )
+    # The stay's base city when the choice was made (our own data, from the AI plan).
+    city: Mapped[str | None] = mapped_column(
+        String(120), nullable=True
     )
     choice: Mapped[str] = mapped_column(
         String(10), nullable=False
@@ -294,6 +316,57 @@ class TripLodging(Base):
         default=utcnow,
         onupdate=utcnow,
         nullable=False,
+    )
+
+
+class TripNightOverride(Base):
+    """The traveler's own say on whether a night is spent travelling ("I'm travelling this night").
+
+    Wins over the plan's mark either way, and is kept when the plan is regenerated.
+    """
+
+    __tablename__ = "trip_night_overrides"
+    __table_args__ = (UniqueConstraint("trip_id", "night_date", name="uq_trip_night_overrides_trip_night"),)
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True
+    )
+    trip_id: Mapped[int] = mapped_column(
+        ForeignKey("trips.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    night_date: Mapped[date] = mapped_column(
+        nullable=False
+    )
+    in_transit: Mapped[bool] = mapped_column(
+        Boolean, nullable=False
+    )
+
+
+class TripStaySplit(Base):
+    """The traveler's split of a stay: a second hotel in the same city from this night on.
+
+    Kept when the plan is regenerated, and applied only while that night is still in `city`,
+    so a new plan can't have it cut a different city in two.
+    """
+
+    __tablename__ = "trip_stay_splits"
+    __table_args__ = (UniqueConstraint("trip_id", "night_date", name="uq_trip_stay_splits_trip_night"),)
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True
+    )
+    trip_id: Mapped[int] = mapped_column(
+        ForeignKey("trips.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    night_date: Mapped[date] = mapped_column(
+        nullable=False
+    )
+    city: Mapped[str] = mapped_column(
+        String(120), nullable=False
     )
 
 

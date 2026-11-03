@@ -5,7 +5,7 @@
  * Itinerary, Budget (A3), Stay (where to stay) and Map (A12) are tabs; ?tab=budget, ?tab=stay or
  * ?tab=map keeps a tab open on refresh.
  */
-import { lazy, Suspense, useEffect, useRef, useState } from 'react';
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import BudgetTab from '../components/BudgetTab';
@@ -52,6 +52,92 @@ export default function Itinerary() {
   if (tab === 'stay' && !stayOpened) setStayOpened(true);
   const autoGenerate = useRef(Boolean(location.state?.generate));
   const regenerateRef = useRef(null);
+  // Where the traveler sleeps each night (GET /lodging: no Google calls), for the day cards.
+  const [lodging, setLodging] = useState(null);
+  // The Budget tab's total and its parts, for the summary (undefined: loading; null: failed).
+  const [budget, setBudget] = useState(undefined);
+  // Bumped when a night is switched here, so the Stay tab (if open) reloads its stays.
+  const [nightsVersion, setNightsVersion] = useState(0);
+  // Google's hotel names (place_id -> name) for this page visit only: in memory, never in
+  // localStorage or sessionStorage (Google's terms), gone on reload. The Stay tab fills it for free.
+  const hotelNames = useRef(new Map());
+  const pendingNames = useRef(new Set()); // place IDs being looked up right now
+  const [, setNamesVersion] = useState(0); // re-render when names arrive
+  const rememberHotelNames = useCallback((hotels) => {
+    let added = false;
+    for (const { place_id: placeId, name } of hotels) {
+      if (placeId && name && hotelNames.current.get(placeId) !== name) {
+        hotelNames.current.set(placeId, name);
+        added = true;
+      }
+    }
+    if (added) setNamesVersion((version) => version + 1);
+  }, []);
+
+  // Both asked again each time the Itinerary shows a plan, so a change just made on the Stay or
+  // Budget tab shows up. Neither calls Google. They're extra detail: if one fails, the days just
+  // don't say where you sleep, or the total is the plan's own.
+  const showingPlan = status === 'ready' && tab === 'itinerary' && Boolean(plan);
+  useEffect(() => {
+    if (!showingPlan) return undefined;
+    let cancelled = false;
+    api
+      .get(`/trips/${tripId}/lodging`)
+      .then((overview) => {
+        if (!cancelled) setLodging(overview);
+      })
+      .catch(() => {
+        if (!cancelled) setLodging(null);
+      });
+    api
+      .get(`/trips/${tripId}/budget`)
+      .then((data) => {
+        if (!cancelled) setBudget(data);
+      })
+      .catch(() => {
+        if (!cancelled) setBudget(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [showingPlan, plan, tripId]);
+
+  // Names of picked hotels this visit doesn't have yet: one name-only lookup each (billed), never repeated
+  // while it's known. A failed one just leaves "your hotel in Kathmandu", and is tried on the next visit here.
+  useEffect(() => {
+    if (!showingPlan || !lodging) return undefined;
+    const missing = lodging.stays
+      .filter((stay) => stay.choice?.choice === 'hotel' && !stay.plan_changed && stay.choice.place_id)
+      .filter(({ choice }) => !hotelNames.current.has(choice.place_id) && !pendingNames.current.has(choice.place_id));
+    if (missing.length === 0) return undefined;
+
+    let cancelled = false;
+    const placeIds = missing.map(({ choice }) => choice.place_id);
+    placeIds.forEach((placeId) => pendingNames.current.add(placeId));
+    const release = () => placeIds.forEach((placeId) => pendingNames.current.delete(placeId));
+    const query = missing.map((stay) => `stays=${stay.number}`).join('&');
+    api
+      .get(`/trips/${tripId}/lodging/names?${query}`)
+      .then((names) => {
+        if (!cancelled) rememberHotelNames(names);
+      })
+      .catch(() => {}) // the days say "your hotel in …" instead
+      .finally(() => {
+        if (!cancelled) release();
+      });
+    return () => {
+      // StrictMode (development) cleans up and runs effects again: let that run ask afresh.
+      cancelled = true;
+      release();
+    };
+  }, [showingPlan, lodging, tripId, rememberHotelNames]);
+
+  // "I'm travelling this night" (true/false), or null to go back to the plan's say.
+  async function setNight(date, inTransit) {
+    const path = `/trips/${tripId}/nights/${date}`;
+    setLodging(inTransit === null ? await api.delete(path) : await api.put(path, { in_transit: inTransit }));
+    setNightsVersion((version) => version + 1);
+  }
 
   useEffect(() => {
     let cancelled = false;
@@ -264,7 +350,14 @@ export default function Itinerary() {
               )}
               {planning && <p className="text-muted trip-page__wait">Planning a new version. This usually takes 5 to 20 seconds.</p>}
 
-              <ItineraryView itinerary={plan} />
+              <ItineraryView
+                itinerary={plan}
+                budget={budget}
+                hotelNames={hotelNames.current}
+                lodging={lodging}
+                onShowStay={() => showTab('stay')}
+                onSetNight={setNight}
+              />
             </section>
           )}
         </TabPanel>
@@ -286,7 +379,13 @@ export default function Itinerary() {
               }
             >
               <Suspense fallback={<Spinner size="lg" label="Loading where to stay" />}>
-                <WhereToStay key={trip.id} trip={trip} />
+                <WhereToStay
+                  key={trip.id}
+                  trip={trip}
+                  nightsVersion={nightsVersion}
+                  hotelNames={hotelNames.current}
+                  onHotelNames={rememberHotelNames}
+                />
               </Suspense>
             </ErrorBoundary>
           )}

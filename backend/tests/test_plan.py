@@ -225,6 +225,81 @@ def test_prompt_asks_for_costs_for_the_whole_group(client, monkeypatch):
 
 
 # --- Replace --------------------------------------------------------------
+def test_prompt_asks_for_each_days_base_city(client, monkeypatch):
+    prompts = use_fake_gemini(monkeypatch, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+
+    client.post(f"/api/trips/{trip_id}/plan")
+
+    assert "Give every day a base_city: the city or town where the traveler sleeps that night" in prompts[0]
+    assert '"base_city": "string"' in prompts[0]
+
+
+def test_each_days_base_city_is_saved_and_returned(client, monkeypatch):
+    two_cities = {
+        **FIRST_PLAN,
+        "days": [
+            {**FIRST_PLAN["days"][0], "base_city": "  Kathmandu,   Nepal "},
+            {**FIRST_PLAN["days"][1], "base_city": "C" * 150},
+        ],
+    }
+    use_fake_gemini(monkeypatch, two_cities)
+    register(client)
+    trip_id = create_trip(client)
+
+    client.post(f"/api/trips/{trip_id}/plan")
+
+    days = client.get(f"/api/trips/{trip_id}/plan").json()["days"]
+    assert days[0]["base_city"] == "Kathmandu, Nepal"  # spaces tidied
+    assert days[1]["base_city"] == "C" * 120  # capped at the column's length
+
+
+def test_prompt_asks_which_nights_are_spent_travelling(client, monkeypatch):
+    prompts = use_fake_gemini(monkeypatch, FIRST_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+
+    client.post(f"/api/trips/{trip_id}/plan")
+
+    assert "Set in_transit to true for a day whose night is spent travelling" in prompts[0]
+    assert '"in_transit": false' in prompts[0]
+
+
+def test_each_days_in_transit_mark_is_saved_and_returned(client, monkeypatch):
+    flight_first = {**FIRST_PLAN, "days": [{**FIRST_PLAN["days"][0], "in_transit": True}, FIRST_PLAN["days"][1]]}
+    use_fake_gemini(monkeypatch, flight_first)
+    register(client)
+    trip_id = create_trip(client)
+
+    client.post(f"/api/trips/{trip_id}/plan")
+
+    assert [day["in_transit"] for day in client.get(f"/api/trips/{trip_id}/plan").json()["days"]] == [True, False]
+
+
+def test_a_plan_without_base_cities_still_saves(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN)  # no base_city, like plans from before multi-city
+    register(client)
+    trip_id = create_trip(client)
+
+    r = client.post(f"/api/trips/{trip_id}/plan")
+
+    assert r.status_code == 200
+    assert [day["base_city"] for day in r.json()["days"]] == [None, None]
+    assert [day["in_transit"] for day in r.json()["days"]] == [False, False]  # nothing said: a hotel night
+
+
+def test_a_blank_base_city_counts_as_none(client, monkeypatch):
+    blank = {**FIRST_PLAN, "days": [{**day, "base_city": "   "} for day in FIRST_PLAN["days"]]}
+    use_fake_gemini(monkeypatch, blank)
+    register(client)
+    trip_id = create_trip(client)
+
+    days = client.post(f"/api/trips/{trip_id}/plan").json()["days"]
+
+    assert {day["base_city"] for day in days} == {None}
+
+
 def test_regenerate_replaces_the_plan(client, monkeypatch):
     prompts = use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
     register(client)
