@@ -56,7 +56,7 @@ class UserOut(BaseModel):
 # --- Preferences (F1) -----------------------------------------------------
 class PreferenceIn(BaseModel):
     home_city: str = ""
-    interests: str = ""
+    interests: list[str] = Field(default_factory=list)
     default_budget: float | None = None
     travel_style: str = ""
 
@@ -67,7 +67,7 @@ class PreferenceOut(BaseModel):
     id: int
     user_id: int
     home_city: str
-    interests: str
+    interests: list[str]
     default_budget: float | None
     travel_style: str
 

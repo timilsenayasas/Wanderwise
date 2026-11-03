@@ -21,7 +21,7 @@ def get_preferences(user: CurrentUser, db: DbSession) -> PreferenceOut:
             id=0,
             user_id=user.id,
             home_city="",
-            interests="",
+            interests=[],
             default_budget=None,
             travel_style="",
         )

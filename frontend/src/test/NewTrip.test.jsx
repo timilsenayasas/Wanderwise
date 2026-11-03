@@ -78,7 +78,7 @@ describe('New Trip page', () => {
     vi.clearAllMocks();
     api.get.mockResolvedValue({
       home_city: '',
-      interests: '',
+      interests: [],
       default_budget: null,
       travel_style: '',
   });
@@ -162,7 +162,7 @@ describe('New Trip page', () => {
 it('prefills the New Trip form with saved profile preferences', async () => {
   api.get.mockResolvedValue({
     home_city: 'Fort Worth, TX',
-    interests: 'food, museums',
+    interests: ['food, museums'],
     default_budget: 2000,
     travel_style: 'Relaxed',
   });
@@ -219,7 +219,7 @@ it('allows users to change prefilled profile values', async () => {
 
   api.get.mockResolvedValue({
     home_city: 'Fort Worth, TX',
-    interests: 'food, museums',
+    interests: ['food', 'museums'],
     default_budget: 2000,
     travel_style: 'Relaxed',
   });
