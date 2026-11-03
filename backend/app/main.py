@@ -1,3 +1,4 @@
+
 """
 WanderWise backend (FastAPI): builds the app from the pieces below.
 
@@ -25,12 +26,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.config import settings
 from app.database import SessionLocal
 from app.db_migrate import upgrade_database
-feature/a11-weather
-from app.routers import auth, budget, plan, preferences, trips, weather
-
 from app.lodging import clear_stale_coords
-from app.routers import auth, budget, lodging, plan, preferences, trips
-main
+from app.routers import auth, budget, lodging, plan, preferences, trips, weather
 
 
 @asynccontextmanager
@@ -64,8 +61,6 @@ app.include_router(preferences.router)
 app.include_router(trips.router)
 app.include_router(plan.router)
 app.include_router(budget.router)
-feature/a11-weather
 app.include_router(weather.router)
-
 app.include_router(lodging.router)
-main
+
