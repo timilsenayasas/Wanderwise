@@ -63,7 +63,12 @@ export default function WeatherTab({ trip }) {
                                 <p>Low: {day.temperature_min}°C</p>
 
                                 {day.type === 'forecast' && (
-                                    <p>Chance of rain: {day.precipitation_probability ?? 'N/A'}%</p>
+                                    <p>
+                                        Chance of rain:{' '}
+                                        {day.precipitation_probability != null
+                                            ? `${day.precipitation_probability}%`
+                                            : 'not available'}
+                                    </p>
                                 )}
 
                                 {day.type === 'seasonal_average' && (

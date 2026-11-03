@@ -44,11 +44,19 @@ def get_trip_weather(trip_id: int, user: CurrentUser, db: DbSession) -> dict:
     start = date.fromisoformat(str(trip.start_date))
     end = date.fromisoformat(str(trip.end_date))
 
-    current = start
+    trip_days = [
+        (start + timedelta(days=offset)).isoformat()
+        for offset in range((end - start).days + 1)
+    ]
 
-    while current <= end:
-        day = current.isoformat()
+    # Days outside the forecast: averages for all of them at once (one archive call per past year).
+    averages = weather.seasonal_averages(
+        latitude,
+        longitude,
+        [day for day in trip_days if day not in forecast_by_date],
+    )
 
+    for day in trip_days:
         if day in forecast_by_date:
             index = forecast_by_date[day]
 
@@ -64,18 +72,13 @@ def get_trip_weather(trip_id: int, user: CurrentUser, db: DbSession) -> dict:
                 "unit": "°C",
                 "label": "Daily forecast",
             })
+        elif day in averages:
+            result["days"].append(averages[day])
         else:
-            average = weather.seasonal_average(latitude, longitude, day)
-
-            if average:
-                result["days"].append(average)
-            else:
-                result["days"].append({
-                    "date": day,
-                    "type": "unavailable",
-                    "label": "Weather information unavailable",
-                })
-
-        current += timedelta(days=1)
+            result["days"].append({
+                "date": day,
+                "type": "unavailable",
+                "label": "Weather information unavailable",
+            })
 
     return result
