@@ -1,6 +1,11 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { MemoryRouter, Route, Routes, useLocation } from 'react-router-dom';
+import {
+  MemoryRouter,
+  Route,
+  Routes,
+  useLocation,
+} from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import NewTrip from '../pages/NewTrip';
@@ -72,6 +77,7 @@ describe('New Trip page', () => {
     vi.clearAllMocks();
   });
 
+  // TEST 1: Empty form validation
   it('shows validation errors when the form is submitted empty', async () => {
     const user = userEvent.setup();
 
@@ -108,6 +114,7 @@ describe('New Trip page', () => {
     expect(api.post).not.toHaveBeenCalled();
   });
 
+  // TEST 2: Successful trip submission
   it('submits the trip, shows a success toast, and redirects', async () => {
     const user = userEvent.setup();
 
@@ -140,5 +147,89 @@ describe('New Trip page', () => {
     expect(
       await screen.findByTestId('location'),
     ).toHaveTextContent('/trips/42');
+  });
+
+  // TEST 3: Reject more than 20 travelers
+  it('rejects more than 20 travelers', async () => {
+    const user = userEvent.setup();
+
+    renderNewTrip();
+
+    await fillValidForm(user);
+
+    const travelersInput = screen.getByLabelText(/travelers/i);
+
+    await user.clear(travelersInput);
+    await user.type(travelersInput, '25');
+
+    await user.click(
+      screen.getByRole('button', { name: /create trip/i }),
+    );
+
+    expect(
+      await screen.findByText(
+        'You can have a maximum of 20 travelers',
+      ),
+    ).toBeInTheDocument();
+
+    expect(api.post).not.toHaveBeenCalled();
+  });
+
+  // TEST 4: Accept exactly 20 travelers
+  it('accepts 20 travelers', async () => {
+    const user = userEvent.setup();
+
+    api.post.mockResolvedValue({
+      id: 43,
+    });
+
+    renderNewTrip();
+
+    await fillValidForm(user);
+
+    const travelersInput = screen.getByLabelText(/travelers/i);
+
+    await user.clear(travelersInput);
+    await user.type(travelersInput, '20');
+
+    await user.click(
+      screen.getByRole('button', { name: /create trip/i }),
+    );
+
+    expect(api.post).toHaveBeenCalledWith(
+      '/trips',
+      expect.objectContaining({
+        travelers: 20,
+      }),
+    );
+
+    expect(
+      await screen.findByTestId('location'),
+    ).toHaveTextContent('/trips/43');
+  });
+
+  // TEST 5: Display actual server error
+  it('displays the actual server error when saving fails', async () => {
+    const user = userEvent.setup();
+
+    api.post.mockRejectedValue({
+      response: {
+        data: {
+          detail: 'Maximum number of travelers is 20.',
+        },
+      },
+    });
+
+    renderNewTrip();
+
+    await fillValidForm(user);
+
+    await user.click(
+      screen.getByRole('button', { name: /create trip/i }),
+    );
+
+    expect(
+      await screen.findByRole('alert'),
+    ).toHaveTextContent('Maximum number of travelers is 20.');
   });
 });
