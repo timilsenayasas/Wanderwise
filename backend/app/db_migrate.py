@@ -30,20 +30,24 @@ def upgrade_database(bind: Engine = engine) -> None:
 
     with bind.begin() as connection:
         config.attributes["connection"] = connection
+
         tables = set(inspect(connection).get_table_names())
         current = MigrationContext.configure(connection).get_current_revision()
 
-        # Tables exist but no version is recorded (no alembic_version table, or an empty one).
         if "users" in tables and current is None:
-            logger.info("Existing database without migrations: adopting it at the baseline.")
-            import app.models  # noqa: F401  (register every table on Base.metadata)
+            logger.info(
+                "Existing database without migrations: adopting it at the baseline."
+            )
 
-            # Only the baseline tables, so tables from later migrations are created by those.
-            baseline = [Base.metadata.tables[name] for name in ("users", "preferences", "trips")]
-            Base.metadata.create_all(bind=connection, tables=baseline)  # skips existing ones
+            import app.models  # noqa: F401
+
+            baseline = [
+                Base.metadata.tables[name]
+                for name in ("users", "preferences", "trips")
+            ]
+            Base.metadata.create_all(bind=connection, tables=baseline)
+
+
             command.stamp(config, BASELINE_REVISION)
 
-        if connection.dialect.name == "sqlite":
-            Base.metadata.create_all(bind=connection)
-        else:
-            command.upgrade(config, "head")
+        command.upgrade(config, "head")

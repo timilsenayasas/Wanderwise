@@ -1,10 +1,15 @@
+
 """Convert profile interests from text to JSONB arrays.
 
 Revision ID: b9a9197fc833
 Revises: ae137b358740
 """
 
+import json
+
+import sqlalchemy as sa
 from alembic import op
+from sqlalchemy import text
 
 revision = "b9a9197fc833"
 down_revision = "ae137b358740"
@@ -13,6 +18,38 @@ depends_on = None
 
 
 def upgrade() -> None:
+    if op.get_bind().dialect.name == "sqlite":
+        connection = op.get_bind()
+
+        rows = connection.execute(
+            text("SELECT user_id, interests FROM preferences")
+        ).fetchall()
+
+        for user_id, interests in rows:
+            items = [
+                item.strip()
+                for item in (interests or "").split(",")
+                if item.strip()
+            ]
+            connection.execute(
+                text(
+                    "UPDATE preferences SET interests = :interests "
+                    "WHERE user_id = :user_id"
+                ),
+                {"interests": json.dumps(items), "user_id": user_id},
+            )
+
+        with op.batch_alter_table("preferences") as batch_op:
+            batch_op.alter_column(
+                "interests",
+                existing_type=sa.Text(),
+                type_=sa.JSON(),
+                existing_nullable=False,
+            )
+
+        return
+
+    # PostgreSQL: convert comma-separated text into JSONB arrays.
     op.execute("""
         CREATE FUNCTION a9_interests_to_jsonb(value text)
         RETURNS jsonb
@@ -46,6 +83,40 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    if op.get_bind().dialect.name == "sqlite":
+        connection = op.get_bind()
+
+        rows = connection.execute(
+            text("SELECT user_id, interests FROM preferences")
+        ).fetchall()
+
+        for user_id, interests in rows:
+            try:
+                items = json.loads(interests or "[]")
+            except (ValueError, TypeError):
+                items = []
+
+            value = ", ".join(items) if isinstance(items, list) else ""
+
+            connection.execute(
+                text(
+                    "UPDATE preferences SET interests = :interests "
+                    "WHERE user_id = :user_id"
+                ),
+                {"interests": value, "user_id": user_id},
+            )
+
+        with op.batch_alter_table("preferences") as batch_op:
+            batch_op.alter_column(
+                "interests",
+                existing_type=sa.JSON(),
+                type_=sa.Text(),
+                existing_nullable=False,
+            )
+
+        return
+
+    # PostgreSQL: convert JSONB arrays back to comma-separated text.
     op.execute("""
         CREATE FUNCTION a9_interests_to_text(value jsonb)
         RETURNS text
