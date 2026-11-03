@@ -2,7 +2,6 @@
 """A11: Open-Meteo weather integration for WanderWise trips."""
 
 from datetime import date
-from functools import lru_cache
 
 import httpx
 
@@ -93,9 +92,12 @@ def fetch_forecast(latitude: float, longitude: float) -> dict | None:
 # Historical weather data for seasonal estimates.
 HISTORICAL_URL = "https://archive-api.open-meteo.com/v1/archive"
 
+# Past weather doesn't change, so answers are kept (oldest dropped first). Only successful ones:
+# a failed lookup is tried again next time instead of being remembered until a restart.
+HISTORICAL_CACHE_SIZE = 256
+_historical_cache: dict[tuple, dict] = {}
 
 
-@lru_cache(maxsize=256)
 def fetch_historical_weather(
     latitude: float,
     longitude: float,
@@ -103,6 +105,9 @@ def fetch_historical_weather(
     end_date: str,
 ) -> dict | None:
     """Fetch historical daily temperatures for seasonal averages."""
+    key = (latitude, longitude, start_date, end_date)
+    if key in _historical_cache:
+        return _historical_cache[key]
     try:
         response = httpx.get(
             HISTORICAL_URL,
@@ -117,13 +122,18 @@ def fetch_historical_weather(
             timeout=TIMEOUT_SECONDS,
         )
         response.raise_for_status()
-        return response.json()
+        data = response.json()
     except (httpx.HTTPError, ValueError) as exc:
         logger.warning(
             "Historical weather lookup failed: %s",
             type(exc).__name__,
         )
         return None
+
+    _historical_cache[key] = data
+    if len(_historical_cache) > HISTORICAL_CACHE_SIZE:
+        del _historical_cache[next(iter(_historical_cache))]  # the oldest
+    return data
 
 def _same_day_in(target: date, year: int) -> date:
     try:

@@ -18,7 +18,7 @@ def no_real_open_meteo(monkeypatch):
         raise AssertionError("A test tried to call the real Open-Meteo API.")
 
     monkeypatch.setattr(weather.httpx, "get", refuse)
-    weather.fetch_historical_weather.cache_clear()  # no archive answers left over from another test
+    monkeypatch.setattr(weather, "_historical_cache", {})  # no archive answers left over from another test
 
 
 class FakeResponse:
@@ -338,3 +338,40 @@ def test_a_past_year_without_data_is_left_out_of_the_average(client, monkeypatch
 
     assert len(archive_calls) == 3
     assert all(day["years_used"] == 2 for day in data["days"])
+
+
+ARCHIVE_ARGS = (41.85, -87.65, "2025-06-15", "2025-06-16")
+
+
+def test_a_failed_archive_lookup_is_tried_again(monkeypatch):
+    answers = iter([None, archive_by_year({"start_date": "2025-06-15", "end_date": "2025-06-16"})])
+    calls = fake_open_meteo(monkeypatch, {weather.HISTORICAL_URL: lambda params: next(answers)})
+
+    assert weather.fetch_historical_weather(*ARCHIVE_ARGS) is None
+    data = weather.fetch_historical_weather(*ARCHIVE_ARGS)
+
+    assert data["daily"]["time"] == ["2025-06-15", "2025-06-16"]
+    assert len(calls) == 2
+
+
+def test_a_successful_archive_lookup_is_kept(monkeypatch):
+    calls = fake_open_meteo(monkeypatch, {weather.HISTORICAL_URL: archive_by_year})
+
+    first = weather.fetch_historical_weather(*ARCHIVE_ARGS)
+
+    assert weather.fetch_historical_weather(*ARCHIVE_ARGS) == first
+    assert len(calls) == 1
+
+
+def test_the_archive_cache_drops_the_oldest_answer_when_full(monkeypatch):
+    monkeypatch.setattr(weather, "HISTORICAL_CACHE_SIZE", 2)
+    calls = fake_open_meteo(monkeypatch, {weather.HISTORICAL_URL: archive_by_year})
+    ranges = [("2025-06-15", "2025-06-15"), ("2025-06-16", "2025-06-16"), ("2025-06-17", "2025-06-17")]
+
+    for start, end in ranges:
+        weather.fetch_historical_weather(41.85, -87.65, start, end)
+    weather.fetch_historical_weather(41.85, -87.65, *ranges[2])  # still kept
+    weather.fetch_historical_weather(41.85, -87.65, *ranges[0])  # dropped: asked again
+
+    assert len(calls) == 4
+    assert len(weather._historical_cache) == 2
