@@ -15,6 +15,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Home from './pages/Home';
 import NewTrip from './pages/NewTrip';
+import EditTrip from './pages/EditTrip';
 import Itinerary from './pages/Itinerary';
 import MyTrips from './pages/MyTrips';
 import Profile from './pages/Profile';
@@ -28,6 +29,7 @@ const PAGE_TITLES = {
   '/home': 'Home',
   '/trips/new': 'Plan a new trip',
   '/trips': 'My trips',
+  '/trips/:tripId/edit': 'Edit Trip',
   '/trips/:tripId': 'Itinerary',
   '/profile': 'Profile',
   '/plan': 'AI trip plan',
@@ -39,8 +41,7 @@ function AppLayout() {
   const firstRender = useRef(true);
   const mainRef = useRef(null);
 
-  // On navigation: scroll to top and move focus to the page so screen reader
-  // and keyboard users start at the new content.
+  // On navigation: scroll to top and move focus to the page.
   useEffect(() => {
     if (firstRender.current) {
       firstRender.current = false;
@@ -66,14 +67,19 @@ function AppLayout() {
 
 function DocumentTitle() {
   const { pathname } = useLocation();
+
   useEffect(() => {
     // Exact paths win over patterns like /trips/:tripId.
     const match =
       (PAGE_TITLES[pathname] && pathname) ||
-      Object.keys(PAGE_TITLES).find((pattern) => matchPath({ path: pattern, end: true }, pathname));
+      Object.keys(PAGE_TITLES).find((pattern) =>
+        matchPath({ path: pattern, end: true }, pathname)
+      );
+
     const title = match ? PAGE_TITLES[match] : 'Page not found';
     document.title = `${title} · WanderWise`;
   }, [pathname]);
+
   return null;
 }
 
@@ -81,21 +87,26 @@ export default function App() {
   return (
     <>
       <DocumentTitle />
+
       <Routes>
         <Route path="/login" element={<GuestRoute><Login /></GuestRoute>} />
-        {/* Register handles its own "already logged in" redirect so it can show a success screen. */}
+
+        {/* Register handles its own "already logged in" redirect. */}
         <Route path="/register" element={<Register />} />
 
         <Route element={<AppLayout />}>
           <Route path="/" element={<Landing />} />
+
           <Route element={<ProtectedRoute />}>
             <Route path="/home" element={<Home />} />
             <Route path="/trips" element={<MyTrips />} />
             <Route path="/trips/new" element={<NewTrip />} />
+            <Route path="/trips/:tripId/edit" element={<EditTrip />} />
             <Route path="/trips/:tripId" element={<Itinerary />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/plan" element={<PlanPreview />} />
           </Route>
+
           <Route path="*" element={<NotFound />} />
         </Route>
       </Routes>
