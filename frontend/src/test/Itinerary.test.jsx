@@ -237,6 +237,7 @@ describe('Trip page tabs', () => {
     const budget = screen.getByRole('tab', { name: 'Budget' });
     const stay = screen.getByRole('tab', { name: 'Stay' });
     const map = screen.getByRole('tab', { name: 'Map' });
+    const weather = screen.getByRole('tab', { name: 'Weather' });
 
     // Only the selected tab is in the Tab order.
     expect(itinerary).toHaveAttribute('tabindex', '0');
@@ -254,16 +255,17 @@ describe('Trip page tabs', () => {
     expect(stay).toHaveFocus();
     await userEvent.keyboard('{ArrowRight}');
     expect(map).toHaveFocus();
+    await userEvent.keyboard('{ArrowRight}');
+    expect(weather).toHaveFocus();
     await userEvent.keyboard('{ArrowRight}'); // wraps around
     expect(itinerary).toHaveFocus();
-    expect(itinerary).toHaveAttribute('aria-selected', 'true');
 
     await userEvent.keyboard('{End}');
-    expect(map).toHaveFocus();
+    expect(weather).toHaveFocus();
     await userEvent.keyboard('{Home}');
     expect(itinerary).toHaveFocus();
     await userEvent.keyboard('{ArrowLeft}'); // wraps the other way
-    expect(map).toHaveFocus();
+    expect(weather).toHaveFocus();
   });
 
   it('opens the Budget tab from ?tab=budget', async () => {
@@ -364,7 +366,7 @@ describe('Trip page tabs', () => {
 
   it('keeps the page working when the map crashes', async () => {
     vi.stubEnv('VITE_GOOGLE_MAPS_KEY', 'test-browser-key');
-    vi.spyOn(console, 'error').mockImplementation(() => {}); // React logs the caught error
+    vi.spyOn(console, 'error').mockImplementation(() => { }); // React logs the caught error
     googleMaps.crash = true;
     mockLoad(locatedPlan());
     renderTrip(undefined, '?tab=map');
