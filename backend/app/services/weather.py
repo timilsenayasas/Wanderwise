@@ -1,8 +1,10 @@
 
 """A11: Open-Meteo weather integration for WanderWise trips."""
 
-import httpx
+from datetime import date
 from functools import lru_cache
+
+import httpx
 
 from app.config import logger
 
@@ -123,47 +125,60 @@ def fetch_historical_weather(
         )
         return None
 
-def seasonal_average(latitude: float, longitude: float, travel_date: str) -> dict | None:
-    """Estimate temperatures using the same calendar date over three past years."""
-    from datetime import date
+def _same_day_in(target: date, year: int) -> date:
+    try:
+        return target.replace(year=year)
+    except ValueError:
+        # February 29 does not exist in every year.
+        return target.replace(year=year, day=28)
 
-    target = date.fromisoformat(travel_date)
+
+def seasonal_averages(latitude: float, longitude: float, travel_dates: list[str]) -> dict[str, dict]:
+    """Estimate temperatures for each date from the same calendar dates over three past years.
+
+    One archive request per past year covers all the dates (at most 3 requests per trip).
+    Dates without any past data are left out.
+    """
     current_year = date.today().year
-
-    highs = []
-    lows = []
+    highs = {day: [] for day in travel_dates}
+    lows = {day: [] for day in travel_dates}
 
     for year in range(current_year - 3, current_year):
-        try:
-            historical_date = target.replace(year=year).isoformat()
-        except ValueError:
-            # February 29 does not exist in every year.
-            historical_date = target.replace(year=year, day=28).isoformat()
+        past = {day: _same_day_in(date.fromisoformat(day), year) for day in travel_dates}
+        if not past:
+            break
 
         data = fetch_historical_weather(
-            latitude, longitude, historical_date, historical_date
+            latitude, longitude, min(past.values()).isoformat(), max(past.values()).isoformat()
         )
 
         if not data:
             continue
 
         daily = data.get("daily", {})
-        high = (daily.get("temperature_2m_max") or [None])[0]
-        low = (daily.get("temperature_2m_min") or [None])[0]
+        by_date = dict(
+            zip(
+                daily.get("time") or [],
+                zip(daily.get("temperature_2m_max") or [], daily.get("temperature_2m_min") or []),
+            )
+        )
 
-        if high is not None and low is not None:
-            highs.append(high)
-            lows.append(low)
-
-    if not highs:
-        return None
+        for day, past_day in past.items():
+            high, low = by_date.get(past_day.isoformat(), (None, None))
+            if high is not None and low is not None:
+                highs[day].append(high)
+                lows[day].append(low)
 
     return {
-        "date": travel_date,
-        "type": "seasonal_average",
-        "temperature_max": round(sum(highs) / len(highs), 1),
-        "temperature_min": round(sum(lows) / len(lows), 1),
-        "unit": "°C",
-        "years_used": len(highs),
-        "label": "Historical average (not a forecast)",
+        day: {
+            "date": day,
+            "type": "seasonal_average",
+            "temperature_max": round(sum(highs[day]) / len(highs[day]), 1),
+            "temperature_min": round(sum(lows[day]) / len(lows[day]), 1),
+            "unit": "°C",
+            "years_used": len(highs[day]),
+            "label": "Historical average (not a forecast)",
+        }
+        for day in travel_dates
+        if highs[day]
     }

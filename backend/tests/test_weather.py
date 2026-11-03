@@ -1,6 +1,8 @@
 
 """A11: Tests for the trip weather endpoint."""
 
+from datetime import date, timedelta
+
 import httpx
 import pytest
 
@@ -16,6 +18,7 @@ def no_real_open_meteo(monkeypatch):
         raise AssertionError("A test tried to call the real Open-Meteo API.")
 
     monkeypatch.setattr(weather.httpx, "get", refuse)
+    weather.fetch_historical_weather.cache_clear()  # no archive answers left over from another test
 
 
 class FakeResponse:
@@ -154,15 +157,18 @@ def test_weather_returns_seasonal_average(client, monkeypatch):
 
     monkeypatch.setattr(
         weather,
-        "seasonal_average",
-        lambda latitude, longitude, travel_date: {
-            "date": travel_date,
-            "type": "seasonal_average",
-            "temperature_max": 27.8,
-            "temperature_min": 16.5,
-            "unit": "°C",
-            "years_used": 5,
-            "label": "Historical average (not a forecast)",
+        "seasonal_averages",
+        lambda latitude, longitude, travel_dates: {
+            travel_date: {
+                "date": travel_date,
+                "type": "seasonal_average",
+                "temperature_max": 27.8,
+                "temperature_min": 16.5,
+                "unit": "°C",
+                "years_used": 5,
+                "label": "Historical average (not a forecast)",
+            }
+            for travel_date in travel_dates
         },
     )
 
@@ -267,3 +273,68 @@ def test_no_geocoding_results_is_no_destination(monkeypatch):
     fake_open_meteo(monkeypatch, {weather.GEOCODING_URL: {}})  # Open-Meteo leaves "results" out
 
     assert weather.find_destination("Nowhere, ZZ") is None
+
+
+def archive_by_year(params):
+    """A fake archive answer for any date range: the high is the year's last two digits, the low 10 less."""
+    start = date.fromisoformat(params["start_date"])
+    end = date.fromisoformat(params["end_date"])
+    days = [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
+    return {
+        "daily": {
+            "time": [day.isoformat() for day in days],
+            "temperature_2m_max": [day.year % 100 for day in days],
+            "temperature_2m_min": [day.year % 100 - 10 for day in days],
+        }
+    }
+
+
+def far_trip(client, monkeypatch, start, end, archive=archive_by_year):
+    """A trip outside the forecast. Returns (its weather, the archive requests made)."""
+    register(client)
+    trip_id = client.post("/api/trips", json={**TRIP, "start_date": start, "end_date": end}).json()["id"]
+    calls = fake_open_meteo(
+        monkeypatch,
+        {
+            weather.GEOCODING_URL: {"results": [place("Chicago", "Illinois", "United States", "US")]},
+            weather.FORECAST_URL: {"daily": {"time": []}},
+            weather.HISTORICAL_URL: archive,
+        },
+    )
+    data = client.get(f"/api/trips/{trip_id}/weather").json()
+    return data, [params for url, params in calls if url == weather.HISTORICAL_URL]
+
+
+def test_far_future_days_take_one_archive_call_per_past_year(client, monkeypatch):
+    data, archive_calls = far_trip(client, monkeypatch, "2027-06-15", "2027-06-19")
+
+    years = range(date.today().year - 3, date.today().year)
+    assert [(call["start_date"], call["end_date"]) for call in archive_calls] == [
+        (f"{year}-06-15", f"{year}-06-19") for year in years
+    ]
+    average = round(sum(year % 100 for year in years) / 3, 1)
+    assert [day["date"] for day in data["days"]] == [f"2027-06-{n}" for n in range(15, 20)]
+    for day in data["days"]:
+        assert day["type"] == "seasonal_average"
+        assert day["label"] == "Historical average (not a forecast)"
+        assert (day["temperature_max"], day["temperature_min"], day["years_used"]) == (average, average - 10, 3)
+
+
+def test_february_29_uses_february_28_in_other_years(client, monkeypatch):
+    data, archive_calls = far_trip(client, monkeypatch, "2028-02-28", "2028-03-01")
+
+    assert len(archive_calls) == 3
+    assert [day["date"] for day in data["days"]] == ["2028-02-28", "2028-02-29", "2028-03-01"]
+    assert all(day["type"] == "seasonal_average" and day["years_used"] == 3 for day in data["days"])
+
+
+def test_a_past_year_without_data_is_left_out_of_the_average(client, monkeypatch):
+    failing_year = date.today().year - 1
+
+    def archive(params):
+        return None if params["start_date"].startswith(str(failing_year)) else archive_by_year(params)
+
+    data, archive_calls = far_trip(client, monkeypatch, "2027-06-15", "2027-06-16", archive)
+
+    assert len(archive_calls) == 3
+    assert all(day["years_used"] == 2 for day in data["days"])
