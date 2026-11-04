@@ -152,6 +152,20 @@ class ItineraryResponse(BaseModel):
     days: list[ItineraryDay]
 
 
+class RefinePlanIn(BaseModel):
+    """A traveler's message requesting changes to a saved itinerary."""
+
+    message: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("message")
+    @classmethod
+    def message_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Enter a message describing the change.")
+        return value
+
+
 # --- Saved plan (A1) ------------------------------------------------------
 # Same fields as ItineraryResponse (so the frontend renders both the same way),
 # plus database ids, end times and coordinates for chat (A6) and the map (A12).

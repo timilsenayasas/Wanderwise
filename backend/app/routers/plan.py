@@ -6,9 +6,9 @@ from app.database import DbSession
 from app.models import Trip
 from app.plans import has_plan, load_plan, save_plan
 from app.routers.trips import get_own_trip
-from app.schemas import SavedPlanOut, TripPlanRequest
+from app.schemas import ItineraryResponse, RefinePlanIn, SavedPlanOut, TripPlanRequest
 from app.security import CurrentUser
-from app.services import geocoding, llm
+from app.services import geocoding, llm, refinement
 
 router = APIRouter(prefix="/api/trips", tags=["ai plan"])
 
@@ -68,6 +68,53 @@ def generate_plan(trip_id: int, user: CurrentUser, db: DbSession) -> SavedPlanOu
 
     # Only replace the saved plan once a new one was generated.
     save_plan(trip, itinerary, db, coordinates)
+    db.commit()
+
+    return load_plan(trip, db)
+
+
+@router.post("/{trip_id}/plan/refine", response_model=SavedPlanOut)
+def refine_plan(
+    trip_id: int,
+    body: RefinePlanIn,
+    user: CurrentUser,
+    db: DbSession,
+) -> SavedPlanOut:
+    """Refine a saved itinerary using the traveler's message."""
+
+    trip = get_own_trip(trip_id, user, db)
+
+    existing_plan = load_plan(trip, db)
+    if existing_plan is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="This trip does not have a saved itinerary.",
+        )
+
+    current_itinerary = ItineraryResponse.model_validate(
+        existing_plan.model_dump()
+    )
+
+    try:
+        updated_itinerary = refinement.refine_itinerary(
+            current_itinerary,
+            body.message,
+        )
+    except llm.LLMServiceError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail={
+                "message": exc.message,
+                "retry": exc.retry,
+            },
+        ) from exc
+
+    coordinates = geocoding.locate_activities(
+        updated_itinerary,
+        trip.destination,
+    )
+
+    save_plan(trip, updated_itinerary, db, coordinates)
     db.commit()
 
     return load_plan(trip, db)
