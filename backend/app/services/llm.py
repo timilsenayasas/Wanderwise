@@ -69,6 +69,11 @@ REQUIREMENTS
 - Include estimated cost for each activity.
 - estimated_cost is the total for all travelers, not per person.
 - Include estimated travel time to the next activity.
+- Include latitude and longitude coordinates for each activity.
+- Coordinates must represent the actual activity location, not just the destination city.
+- Latitude must be between -90 and 90.
+- Longitude must be between -180 and 180.
+- If the exact location cannot be determined confidently, use null for both coordinates.
 - Give every day a base_city: the city or town where the traveler sleeps that night (on the
   last day, where they are). Write it like the destination, e.g. "Chitwan, Nepal". If the trip
   stays in one place, use the same base_city every day. Only change base_city when moving
@@ -101,6 +106,8 @@ Use exactly this JSON structure:
           "name": "string",
           "category": "activity, meal, sightseeing, shopping, nightlife, nature, or transportation",
           "location": "string",
+          "latitude": null,
+          "longitude": null,
           "description": "string",
           "estimated_cost": 0.00,
           "travel_time_to_next_minutes": 0

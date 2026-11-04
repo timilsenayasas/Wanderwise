@@ -4,6 +4,7 @@ import Card from './Card';
 import Icon from './Icon';
 import { formatCurrency } from '../lib/format';
 import { dayLodging, stayHotelLabel, tonightText } from '../lib/lodging';
+import TransportOptions from './TransportOptions';
 import './ItineraryView.css';
 
 /**
@@ -51,7 +52,7 @@ function breakdownText({ plan, lodging, other }) {
   return parts.join(' + ');
 }
 
-export default function ItineraryView({ itinerary, budget, lodging, hotelNames, onShowStay, onSetNight }) {
+export default function ItineraryView({ itinerary, tripId, budget, lodging, hotelNames, onShowStay, onSetNight }) {
   // Google requires attribution for Places content (here, hotel names) shown outside its map.
   const showsGoogleNames = Boolean(
     lodging?.stays.some(
@@ -135,6 +136,14 @@ export default function ItineraryView({ itinerary, budget, lodging, hotelNames, 
                         <p className="activity__desc">{a.description}</p>
                         {a.travel_time_to_next_minutes > 0 && j < day.activities.length - 1 && (
                           <p className="activity__travel">{formatDuration(a.travel_time_to_next_minutes)} to next stop</p>
+                        )}
+                        {j < day.activities.length - 1 && (
+                          <TransportOptions
+                            key={`${a.id}-${day.activities[j + 1].id}`}
+                          tripId={tripId}
+                          origin={a}
+                          destination={day.activities[j + 1]}
+                          />
                         )}
                       </div>
                     </li>

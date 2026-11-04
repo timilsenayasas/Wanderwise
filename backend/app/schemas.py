@@ -125,6 +125,9 @@ class ItineraryActivity(BaseModel):
     estimated_cost: float = Field(ge=0)
     travel_time_to_next_minutes: int = Field(ge=0)
 
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
     check_start_time = field_validator("start_time")(_clock_time)
 
 
