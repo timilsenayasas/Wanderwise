@@ -185,4 +185,36 @@ describe('MyTrips', () => {
       }),
     ).toBeEnabled();
   });
+
+  // B2: Verify skeleton loading screens
+  it('shows skeleton cards while trips are loading', async () => {
+    let finishLoading;
+
+    api.get.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishLoading = resolve;
+        }),
+    );
+
+    renderPage();
+
+    // Verify that loading placeholders appear.
+    expect(
+      screen.getByRole('status', { name: 'Loading your trips' }),
+    ).toBeInTheDocument();
+
+    expect(document.querySelectorAll('.skeleton')).toHaveLength(18);
+
+    // Simulate receiving trip data from the backend.
+    finishLoading([TRIP]);
+
+    // Verify the actual trip appears.
+    expect(
+      await screen.findByRole('heading', { name: 'New York, NY' }),
+    ).toBeInTheDocument();
+
+    // Verify loading placeholders disappear.
+    expect(document.querySelectorAll('.skeleton')).toHaveLength(0);
+  });
 });

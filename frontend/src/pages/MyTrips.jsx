@@ -7,7 +7,7 @@ import Button from '../components/Button';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import Icon from '../components/Icon';
-import Spinner from '../components/Spinner';
+import Skeleton from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import { formatBudget, formatDateRange, tripLength } from '../lib/format';
 import './MyTrips.css';
@@ -61,9 +61,7 @@ export function TripCard({
           ))}
 
           {hiddenTags > 0 && (
-            <li className="trip-card__more">
-              +{hiddenTags} more
-            </li>
+            <li className="trip-card__more">+{hiddenTags} more</li>
           )}
         </ul>
       )}
@@ -122,11 +120,33 @@ export function TripCard({
   );
 }
 
+/**
+ * B2: Skeleton placeholder for a saved trip card.
+ * Displays while trip data is being fetched.
+ */
+function TripCardSkeleton() {
+  return (
+    <Card
+      as="article"
+      padding="md"
+      className="trip-card"
+      aria-hidden="true"
+    >
+      <Skeleton width="45%" height="14px" />
+      <Skeleton width="70%" height="26px" />
+      <Skeleton width="85%" height="16px" />
+      <Skeleton width="65%" height="16px" />
+      <Skeleton width="55%" height="24px" rounded />
+      <Skeleton width="40%" height="34px" rounded />
+    </Card>
+  );
+}
+
 export default function MyTrips() {
   const toast = useToast();
 
   const [trips, setTrips] = useState([]);
-  const [status, setStatus] = useState('loading'); // loading | ready | error
+  const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
 
@@ -191,12 +211,24 @@ export default function MyTrips() {
         )}
       </header>
 
+      {/* B2: Skeleton loading cards */}
       {status === 'loading' && (
-        <div className="page-loading">
-          <Spinner size="lg" label="Loading your trips" />
+        <div role="status" aria-label="Loading your trips">
+          <span className="visually-hidden">
+            Loading your trips...
+          </span>
+
+          <ul className="my-trips__grid">
+            {[1, 2, 3].map((item) => (
+              <li key={item}>
+                <TripCardSkeleton />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
+      {/* Error state */}
       {status === 'error' && (
         <Card padding="lg">
           <p className="my-trips__alert" role="alert">
@@ -209,6 +241,7 @@ export default function MyTrips() {
         </Card>
       )}
 
+      {/* Empty state */}
       {status === 'ready' && trips.length === 0 && (
         <Card padding="lg">
           <EmptyState
@@ -223,6 +256,7 @@ export default function MyTrips() {
         </Card>
       )}
 
+      {/* Saved trips */}
       {status === 'ready' && trips.length > 0 && (
         <ul className="my-trips__grid">
           {trips.map((trip) => (

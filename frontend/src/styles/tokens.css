@@ -95,3 +95,39 @@
      stop over a pure white photo: 6.5:1. Only the strip with text needs it. */
   --gradient-photo-scrim: linear-gradient(to top, rgba(27, 34, 51, 0.75) 0%, rgba(27, 34, 51, 0.75) 40%, rgba(27, 34, 51, 0) 100%);
 }
+/* ---- Dark theme ---- */
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  /* Brand colors */
+  --color-primary: #1f3864;
+  --color-primary-hover: #172b4f;
+  --color-primary-soft: #34445f;
+
+  --color-accent: #e8683f;
+  --color-accent-strong: #b9461f;
+  --color-accent-hover: #9c3a19;
+  --color-amber: #f29f4b;
+  --color-amber-soft: #59432d;
+
+  --color-success: #34b8a8;
+  --color-success-soft: #173f3b;
+  --color-error: #ff8178;
+  --color-error-soft: #512b2b;
+
+  /* Dark neutrals */
+  --color-bg: #111827;
+  --color-bg-deep: #1f2937;
+  --color-surface: #263244;
+  --color-text: #f9fafb;
+  --color-text-muted: #cbd5e1;
+  --color-border: #475569;
+  --color-border-strong: #94a3b8;
+  --color-focus: #93b4f5;
+  --color-on-dark: #fbf5ec;
+
+  /* Dark shadows */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.25);
+  --shadow-md: 0 6px 18px rgba(0, 0, 0, 0.3);
+  --shadow-lg: 0 18px 40px rgba(0, 0, 0, 0.4);
+}
