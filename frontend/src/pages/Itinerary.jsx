@@ -524,6 +524,7 @@ export default function Itinerary() {
 
               <ItineraryView
                 itinerary={plan}
+                tripId={trip.id}
                 budget={budget}
                 hotelNames={hotelNames.current}
                 lodging={lodging}
