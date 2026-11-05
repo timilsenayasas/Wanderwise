@@ -1,14 +1,23 @@
+/* Type scale on this page: h1 3xl > hero title 2xl > section h2 xl > card h3 lg. */
 .home__header {
-  margin-bottom: var(--space-6);
+  margin-bottom: var(--space-5);
 }
 
 .home__title {
+  margin-bottom: var(--space-2);
   font-size: var(--text-3xl);
 }
 
 .home__name {
   color: var(--color-accent-strong);
   font-style: italic;
+}
+
+.home__lede {
+  max-width: 52ch;
+  margin: 0;
+  font-size: var(--text-lg);
+  color: var(--color-text-muted);
 }
 
 /* Big "Plan a new trip" card */
@@ -18,36 +27,43 @@
   overflow: hidden;
   background: var(--gradient-sunset);
   border: 0;
-  box-shadow: var(--shadow-lg);
+  box-shadow: var(--shadow-md);
 }
 
-.plan-card__title {
-  font-size: var(--text-3xl);
-  color: #fff;
+/* Doubled class to beat .card--navy h2. */
+.plan-card .plan-card__title {
+  margin-bottom: var(--space-2);
+  font-size: var(--text-2xl);
+  color: var(--color-on-dark);
 }
 
 .plan-card__text {
-  color: #fff;
+  color: var(--color-on-dark);
   max-width: 48ch;
   margin-bottom: var(--space-5);
 }
 
 .plan-card .btn--accent {
-  background: #fff;
+  background: var(--color-on-dark);
   color: var(--color-accent-strong);
 }
 
-.plan-card .btn--accent:hover {
-  background: var(--color-bg);
+.plan-card .btn--accent:hover:not(:disabled) {
+  background: var(--color-amber-soft);
   color: var(--color-accent-hover);
 }
 
 .plan-card__art svg {
   width: 100%;
-  max-width: 260px;
+  max-width: 240px;
   display: block;
   margin-left: auto;
 }
+
+.plan-card__sun { fill: var(--color-amber); }
+.plan-card__route { stroke: var(--color-on-dark); }
+.plan-card__plane { fill: var(--color-on-dark); }
+.plan-card__start { fill: var(--color-accent); stroke: var(--color-on-dark); }
 
 @media (max-width: 599px) {
   .plan-card__art {
@@ -63,64 +79,117 @@
 }
 
 .home__section {
-  margin-top: var(--space-7);
+  margin-top: var(--space-6);
 }
 
+@media (min-width: 768px) {
+  .home__section {
+    margin-top: var(--space-7);
+  }
+}
+
+/* Every section opens the same way: an h2, with an optional action on the right. */
 .home__section-head {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
+  min-height: 44px;
   margin-bottom: var(--space-3);
 }
 
 .home__section-head h2 {
   margin: 0;
+  font-size: var(--text-xl);
 }
 
-/* Coming soon grid */
+/* "What you can do": each card is one link (icon, text, arrow). */
+.action-grid,
 .soon-grid {
   list-style: none;
   padding: 0;
-  margin: var(--space-4) 0 0;
+  margin: 0;
   display: grid;
   gap: var(--space-4);
-  grid-template-columns: 1fr;
+}
+
+.action-grid > li,
+.soon-grid > li {
+  display: flex;
+}
+
+@media (min-width: 720px) {
+  .action-grid { grid-template-columns: repeat(3, 1fr); }
 }
 
 @media (min-width: 560px) {
   .soon-grid { grid-template-columns: repeat(2, 1fr); }
 }
 
-@media (min-width: 960px) {
-  .soon-grid { grid-template-columns: repeat(3, 1fr); }
+.action-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: var(--space-3);
+  color: inherit;
+  text-decoration: none;
 }
 
-.soon-card {
-  height: 100%;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
+.action-card:hover {
+  color: inherit;
 }
 
+/* The global focus ring would square off the card's corners. */
+.action-card:focus-visible {
+  border-radius: var(--radius-lg);
+  box-shadow: var(--focus-ring);
+}
+
+.action-card__icon,
 .soon-card__icon {
   display: grid;
   place-items: center;
-  width: 48px;
-  height: 48px;
-  margin-bottom: var(--space-3);
+  width: 44px;
+  height: 44px;
   border-radius: var(--radius-md);
   background: var(--color-primary-soft);
   color: var(--color-primary);
 }
 
+.action-card__title,
 .soon-card__title {
+  margin: 0 0 var(--space-1);
   font-size: var(--text-lg);
-  margin-bottom: var(--space-1);
+}
+
+.action-card__text,
+.soon-card__text {
+  margin: 0;
+  font-size: var(--text-sm);
+  color: var(--color-text-muted);
+}
+
+.action-card__arrow {
+  color: var(--color-accent-strong);
+  transition: transform var(--duration-fast) var(--ease-out);
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .action-card:hover .action-card__arrow {
+    transform: translateX(3px);
+  }
+}
+
+/* Coming soon: quieter sand cards, nothing to click. */
+.soon-card {
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto 1fr;
+  align-items: start;
+  gap: var(--space-3);
 }
 
 .soon-card__text {
-  color: var(--color-text-muted);
-  font-size: var(--text-sm);
-  flex: 1;
+  margin-bottom: var(--space-2);
 }

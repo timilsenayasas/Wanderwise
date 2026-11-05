@@ -12,12 +12,42 @@ vi.mock('../api/client', () => ({
 }));
 
 describe('Profile page', () => {
+        it('shows skeleton placeholders while preferences are loading', async () => {
+        let finishLoading;
+
+        api.get.mockImplementation(
+            () => new Promise((resolve) => {
+                finishLoading = resolve;
+            }),
+        );
+
+        render(<Profile />);
+
+        expect(
+            screen.getByRole('status', { name: 'Loading your preferences' }),
+        ).toBeInTheDocument();
+
+        expect(document.querySelectorAll('.skeleton')).toHaveLength(10);
+
+        finishLoading({
+            home_city: 'Fort Worth',
+            interests: 'Food',
+            default_budget: 1500,
+            travel_style: 'Relaxed',
+        });
+
+        expect(
+            await screen.findByLabelText('Home city'),
+        ).toHaveValue('Fort Worth');
+
+        expect(document.querySelectorAll('.skeleton')).toHaveLength(0);
+    });
     it('loads and displays saved preferences', async () => {
         api.get.mockResolvedValue({
             id: 1,
             user_id: 1,
             home_city: 'Fort Worth',
-            interests: 'Food, sightseeing',
+            interests: ['Food', 'sightseeing'],
             default_budget: 1500,
             travel_style: 'Relaxed',
         });
@@ -39,7 +69,7 @@ describe('Profile page', () => {
             id: 0,
             user_id: 1,
             home_city: '',
-            interests: '',
+            interests: [],
             default_budget: null,
             travel_style: '',
         });
@@ -48,7 +78,7 @@ describe('Profile page', () => {
             id: 1,
             user_id: 1,
             home_city: 'Fort Worth',
-            interests: 'Food, beaches',
+            interests:  ['Food', 'beaches'],
             default_budget: 2000,
             travel_style: 'Relaxed',
         });
@@ -69,7 +99,7 @@ describe('Profile page', () => {
         await waitFor(() => {
             expect(api.put).toHaveBeenCalledWith('/me/preferences', {
                 home_city: 'Fort Worth',
-                interests: 'Food, beaches',
+                interests: ['Food', 'beaches'],
                 default_budget: 2000,
                 travel_style: 'Relaxed',
             });

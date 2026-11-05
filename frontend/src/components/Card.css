@@ -31,12 +31,20 @@
   box-shadow: none;
 }
 
+/* Gentle hover lift. Mouse/trackpad only (touch has no hover), and the
+   movement is skipped for reduced motion; keyboard focus shows the focus ring. */
 .card--interactive {
   transition: transform var(--duration-base) var(--ease-out), box-shadow var(--duration-base) ease;
 }
 
-.card--interactive:hover,
-.card--interactive:focus-within {
-  transform: translateY(-4px);
-  box-shadow: var(--shadow-lg);
+@media (hover: hover) {
+  .card--interactive:hover {
+    box-shadow: var(--shadow-md);
+  }
+}
+
+@media (hover: hover) and (prefers-reduced-motion: no-preference) {
+  .card--interactive:hover {
+    transform: translateY(-2px);
+  }
 }

@@ -1,0 +1,67 @@
+
+"""
+WanderWise backend (FastAPI): builds the app from the pieces below.
+
+Where things live:
+  config.py        settings from backend/.env
+  database.py      engine, sessions, Base
+  models.py        database tables  (change one -> create a migration, see README)
+  schemas.py       request/response shapes (the API contract)
+  plans.py         save/load a trip's generated plan (trip_days, activities, cost_items)
+  budget.py        budget categories and a trip's cost totals
+  lodging.py       where to stay: hotel suggestions, budget fit, the traveler's choice
+  security.py      passwords, JWT cookie, CurrentUser
+  rate_limit.py    limits repeated failed logins
+  services/        outside integrations (Gemini, Google Geocoding and Places; later weather)
+  routers/         one file per feature: endpoints only
+
+Adding a feature: put endpoints in a new routers/<feature>.py and include it below.
+"""
+
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
+from app.config import settings
+from app.database import SessionLocal
+from app.db_migrate import upgrade_database
+from app.lodging import clear_stale_coords
+from app.routers import auth, budget, lodging, plan, preferences, transport, trips, weather
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    upgrade_database()
+    # Google's Places terms: hotel coordinates are kept at most 30 days.
+    with SessionLocal() as db:
+        clear_stale_coords(db)
+        db.commit()
+    yield
+
+
+app = FastAPI(title="WanderWise API", version="0.2.0", lifespan=lifespan)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=settings.cors_origin_list,
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+    allow_headers=["Content-Type"],
+)
+
+
+@app.get("/api/health", tags=["health"])
+def health() -> dict:
+    return {"status": "ok"}
+
+
+app.include_router(auth.router)
+app.include_router(preferences.router)
+app.include_router(trips.router)
+app.include_router(plan.router)
+app.include_router(budget.router)
+app.include_router(weather.router)
+app.include_router(lodging.router)
+app.include_router(transport.router)
+

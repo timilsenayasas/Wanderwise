@@ -1,0 +1,60 @@
+/* Same look as the Budget tab's cost-line form. */
+.own-hotel-form {
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1.5px solid var(--color-border);
+  border-left: 4px solid var(--color-primary);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  animation: fade-up var(--duration-base) var(--ease-out) backwards;
+}
+
+.own-hotel-form h4 {
+  margin: 0;
+}
+
+.own-hotel-form__fields {
+  display: grid;
+  gap: var(--space-4);
+}
+
+@media (min-width: 640px) {
+  .own-hotel-form__fields {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .own-hotel-form__wide {
+    grid-column: 1 / -1;
+  }
+}
+
+/* Number inputs keep a wide built-in width on some phones (iOS Safari); let them shrink. */
+.own-hotel-form .field__input {
+  min-width: 0;
+}
+
+.own-hotel-form__total {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-variant-numeric: tabular-nums;
+}
+
+.own-hotel-form__total strong {
+  color: var(--color-text);
+}
+
+.own-hotel-form__alert {
+  margin: 0;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-sm);
+  background: var(--color-error-soft);
+  color: var(--color-error);
+  font-weight: 500;
+}
+
+.own-hotel-form__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+}

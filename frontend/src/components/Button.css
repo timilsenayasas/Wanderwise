@@ -27,8 +27,9 @@
   opacity: 0.7;
 }
 
-/* Sizes — all at least 44px tall for touch targets. */
-.btn--sm { min-height: 36px; padding: var(--space-1) var(--space-4); font-size: var(--text-sm); }
+/* Sizes: every size is at least 44px tall so it's easy to tap (WCAG 2.5.5).
+   sm only shrinks the text and side padding, not the tap target. */
+.btn--sm { min-height: 44px; padding: var(--space-1) var(--space-4); font-size: var(--text-sm); }
 .btn--md { min-height: 44px; padding: var(--space-2) var(--space-5); font-size: var(--text-base); }
 .btn--lg { min-height: 52px; padding: var(--space-3) var(--space-6); font-size: var(--text-lg); }
 

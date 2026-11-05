@@ -74,6 +74,13 @@
   box-shadow: var(--focus-ring);
 }
 
+/* Not an error (e.g. "session expired"), so navy instead of red. */
+.form-alert--info {
+  background: var(--color-primary-soft);
+  color: var(--color-primary);
+  border-color: rgba(31, 56, 100, 0.25);
+}
+
 /* Illustrated panel */
 .auth__panel {
   position: relative;
