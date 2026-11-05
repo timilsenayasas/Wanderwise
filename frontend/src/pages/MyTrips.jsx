@@ -1,5 +1,6 @@
+
 /* S5 My Trips (F12): the user's saved trips, newest first. */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import Button from '../components/Button';
@@ -15,7 +16,13 @@ import './MyTrips.css';
  * One saved trip. The whole card opens the trip; Open/Delete sit above that link.
  * `maxTags` trims long interest lists (Home shows 3 plus "+N more").
  */
-export function TripCard({ trip, onDelete, deleting, maxTags }) {
+export function TripCard({
+  trip,
+  onDelete,
+  deleting,
+  deleteDisabled = false,
+  maxTags,
+}) {
   const [confirming, setConfirming] = useState(false);
   const days = tripLength(trip.start_date, trip.end_date);
   const tags = maxTags ? trip.interests.slice(0, maxTags) : trip.interests;
@@ -24,49 +31,87 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
   return (
     <Card as="article" padding="md" interactive className="trip-card">
       <p className="trip-card__from">From {trip.origin}</p>
+
       <h3 className="trip-card__title">
         <Link to={`/trips/${trip.id}`} className="trip-card__link">
           {trip.destination}
         </Link>
       </h3>
+
       <ul className="trip-card__facts">
         <li>
           <Icon name="calendar" size={18} />
           <span className="visually-hidden">Dates: </span>
-          {formatDateRange(trip.start_date, trip.end_date)} · {days} {days === 1 ? 'day' : 'days'}
+          {formatDateRange(trip.start_date, trip.end_date)} · {days}{' '}
+          {days === 1 ? 'day' : 'days'}
         </li>
+
         <li>
           <Icon name="wallet" size={18} />
           <span className="visually-hidden">Budget: </span>
-          {formatBudget(trip.budget)} · {trip.travelers} {trip.travelers === 1 ? 'traveler' : 'travelers'}
+          {formatBudget(trip.budget)} · {trip.travelers}{' '}
+          {trip.travelers === 1 ? 'traveler' : 'travelers'}
         </li>
       </ul>
+
       {tags.length > 0 && (
         <ul className="trip-card__tags" aria-label="Interests">
           {tags.map((interest) => (
             <li key={interest}>{interest}</li>
           ))}
-          {hiddenTags > 0 && <li className="trip-card__more">+{hiddenTags} more</li>}
+
+          {hiddenTags > 0 && (
+            <li className="trip-card__more">
+              +{hiddenTags} more
+            </li>
+          )}
         </ul>
       )}
+
       {onDelete && (
         <div className="trip-card__actions">
           {confirming ? (
             <>
-              <span className="trip-card__confirm">Delete this trip?</span>
-              <Button size="sm" variant="ghost" onClick={() => setConfirming(false)} disabled={deleting}>
+              <span className="trip-card__confirm">
+                Delete this trip?
+              </span>
+
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirming(false)}
+                disabled={deleting}
+              >
                 Cancel
               </Button>
-              <Button size="sm" variant="accent" onClick={() => onDelete(trip)} loading={deleting} loadingText="Deleting…">
+
+              <Button
+                size="sm"
+                variant="accent"
+                onClick={() => onDelete(trip)}
+                disabled={deleteDisabled}
+                loading={deleting}
+                loadingText="Deleting…"
+              >
                 Delete
               </Button>
             </>
           ) : (
             <>
-              <Button size="sm" variant="secondary" to={`/trips/${trip.id}`}>
+              <Button
+                size="sm"
+                variant="secondary"
+                to={`/trips/${trip.id}`}
+              >
                 Open
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setConfirming(true)}>
+
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirming(true)}
+                disabled={deleteDisabled}
+              >
                 Delete
               </Button>
             </>
@@ -79,13 +124,19 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
 
 export default function MyTrips() {
   const toast = useToast();
+
   const [trips, setTrips] = useState([]);
   const [status, setStatus] = useState('loading'); // loading | ready | error
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
 
+  // Prevent overlapping delete requests.
+  const deletionInProgress = useRef(false);
+
   async function loadTrips() {
     setStatus('loading');
+    setError('');
+
     try {
       setTrips(await api.get('/trips'));
       setStatus('ready');
@@ -100,14 +151,26 @@ export default function MyTrips() {
   }, []);
 
   async function handleDelete(trip) {
+    // Block another deletion while one is in progress.
+    if (deletionInProgress.current) {
+      return;
+    }
+
+    deletionInProgress.current = true;
     setDeletingId(trip.id);
+
     try {
       await api.delete(`/trips/${trip.id}`);
-      setTrips((current) => current.filter((t) => t.id !== trip.id));
+
+      setTrips((current) =>
+        current.filter((t) => t.id !== trip.id)
+      );
+
       toast.success(`Deleted your trip to ${trip.destination}.`);
     } catch (err) {
       toast.error(err.message || 'Could not delete the trip.');
     } finally {
+      deletionInProgress.current = false;
       setDeletingId(null);
     }
   }
@@ -120,6 +183,7 @@ export default function MyTrips() {
           <h1>My trips</h1>
           <p>All your saved trips in one place.</p>
         </div>
+
         {status === 'ready' && trips.length > 0 && (
           <Button to="/trips/new" variant="accent">
             Plan a new trip
@@ -138,6 +202,7 @@ export default function MyTrips() {
           <p className="my-trips__alert" role="alert">
             {error}
           </p>
+
           <Button variant="secondary" onClick={loadTrips}>
             Try again
           </Button>
@@ -162,7 +227,12 @@ export default function MyTrips() {
         <ul className="my-trips__grid">
           {trips.map((trip) => (
             <li key={trip.id}>
-              <TripCard trip={trip} onDelete={handleDelete} deleting={deletingId === trip.id} />
+              <TripCard
+                trip={trip}
+                onDelete={handleDelete}
+                deleting={deletingId === trip.id}
+                deleteDisabled={deletingId !== null}
+              />
             </li>
           ))}
         </ul>
