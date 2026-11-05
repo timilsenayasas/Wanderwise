@@ -136,6 +136,41 @@ afterEach(() => {
   vi.unstubAllEnvs();
   vi.restoreAllMocks();
 });
+describe('Trip page skeleton loading', () => {
+  it('shows skeleton placeholders while the trip is loading', async () => {
+    let finishTrip;
+    let finishPlan;
+
+    api.get.mockImplementation((path) => {
+      if (path.endsWith('/plan')) {
+        return new Promise((resolve) => {
+          finishPlan = resolve;
+        });
+      }
+
+      return new Promise((resolve) => {
+        finishTrip = resolve;
+      });
+    });
+
+    renderTrip();
+
+    expect(
+      screen.getByRole('status', { name: 'Loading your trip' }),
+    ).toBeInTheDocument();
+
+    expect(document.querySelectorAll('.skeleton')).toHaveLength(19);
+
+    finishTrip(TRIP);
+    finishPlan(savedPlan('Art Institute of Chicago'));
+
+    expect(
+      await screen.findByText('Art Institute of Chicago'),
+    ).toBeInTheDocument();
+
+    expect(document.querySelectorAll('.skeleton')).toHaveLength(0);
+  });
+});
 
 describe('Trip page plan', () => {
   it('shows the saved plan on load without offering to generate', async () => {
