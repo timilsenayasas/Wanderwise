@@ -1,10 +1,19 @@
-import { render, screen, within } from '@testing-library/react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { api, ApiError } from '../api/client';
 import TripMap from '../components/TripMap';
 import { fakeMap, googleMaps, resetGoogleMaps } from './mockGoogleMaps';
 
 vi.mock('@vis.gl/react-google-maps', () => import('./mockGoogleMaps'));
+
+vi.mock('../api/client', async (importOriginal) => {
+  const actual = await importOriginal();
+  return { ...actual, api: { get: vi.fn(), post: vi.fn(), put: vi.fn(), delete: vi.fn() } };
+});
+
+// GET /lodging/pins for a one-stay trip with a picked hotel.
+const HOTEL_PINS = [{ stay_number: 1, city: 'Chicago, IL', latitude: 41.9, longitude: -87.62 }];
 
 function stop(id, name, start, end, latitude = 41.88, longitude = -87.62) {
   return {
@@ -58,6 +67,7 @@ function stopList() {
 
 beforeEach(() => {
   resetGoogleMaps();
+  Object.values(api).forEach((fn) => fn.mockReset());
   vi.stubEnv('VITE_GOOGLE_MAPS_KEY', 'test-browser-key');
   vi.stubEnv('VITE_GOOGLE_MAPS_MAP_ID', '');
 });
@@ -154,6 +164,147 @@ describe('Trip map', () => {
   });
 });
 
+describe('Your hotel on the map', () => {
+  function markerLabels() {
+    return screen.getAllByTestId('map-marker').map((marker) => marker.getAttribute('aria-label'));
+  }
+
+  it('shows the chosen hotel as its own, unnumbered pin', async () => {
+    api.get.mockResolvedValue(HOTEL_PINS);
+    render(<TripMap plan={PLAN} tripId={7} />);
+
+    const hotel = await screen.findByRole('button', { name: 'Marker Your hotel' });
+    expect(api.get).toHaveBeenCalledWith('/trips/7/lodging/pins');
+    expect(hotel.textContent).toBe(''); // a bed icon, not a number
+    expect(hotel.querySelector('.trip-map__hotel-pin')).not.toBeNull();
+    expect(markerLabels()).toEqual([
+      'Marker Your hotel',
+      'Marker 1. Art Institute',
+      'Marker 2. Navy Pier',
+      'Marker 3. Jazz club',
+    ]);
+    // The stops keep their numbers.
+    expect(stopList().getByRole('button', { name: /stop 1: art institute/i })).toBeInTheDocument();
+  });
+
+  it('includes the hotel when fitting the map', async () => {
+    const map = fakeMap();
+    api.get.mockResolvedValue(HOTEL_PINS);
+    render(<TripMap plan={PLAN} tripId={7} />);
+
+    await screen.findByRole('button', { name: 'Marker Your hotel' });
+
+    // The map refits just after the hotel renders, so wait for that fit.
+    await waitFor(() => expect(map.fitBounds.mock.calls.at(-1)[0].points).toHaveLength(4));
+    expect(map.fitBounds.mock.calls.at(-1)[0].points).toContainEqual({ lat: 41.9, lng: -87.62 });
+  });
+
+  it('lists the hotel first, so it can be picked with the keyboard', async () => {
+    const map = fakeMap();
+    api.get.mockResolvedValue(HOTEL_PINS);
+    render(<TripMap plan={PLAN} tripId={7} />);
+
+    const item = await screen.findByRole('button', { name: "Your hotel, where you're staying" });
+    expect(stopList().getAllByRole('button')[0]).toBe(item);
+
+    await userEvent.click(item);
+
+    expect(item).toHaveAttribute('aria-pressed', 'true');
+    const details = screen.getByRole('dialog', { name: 'Map details' });
+    expect(details).toHaveTextContent('Your hotel');
+    expect(details).toHaveTextContent("Where you're staying, from the Stay tab.");
+    expect(map.panTo).toHaveBeenCalledWith({ lat: 41.9, lng: -87.62 });
+  });
+
+  it('shows no hotel pin when none is chosen, or when asking fails', async () => {
+    api.get.mockResolvedValueOnce([]);
+    const { unmount } = render(<TripMap plan={PLAN} tripId={7} />);
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(1));
+    expect(markerLabels()).not.toContain('Marker Your hotel');
+    unmount();
+
+    api.get.mockRejectedValueOnce(new ApiError('Something went wrong on our end. Please try again.', 500));
+    render(<TripMap plan={PLAN} tripId={7} />);
+    await waitFor(() => expect(api.get).toHaveBeenCalledTimes(2));
+    expect(markerLabels()).toHaveLength(3); // the stops still show
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('shows the hotel on the map even before there is a plan', async () => {
+    const map = fakeMap();
+    api.get.mockResolvedValue(HOTEL_PINS);
+    const onShowItinerary = vi.fn();
+    render(<TripMap plan={null} tripId={7} onShowItinerary={onShowItinerary} />);
+
+    expect(await screen.findByRole('button', { name: 'Marker Your hotel' })).toBeInTheDocument();
+    // The map effect runs just after the marker renders, so wait for it.
+    await waitFor(() => expect(map.setCenter).toHaveBeenCalledWith({ lat: 41.9, lng: -87.62 })); // one place: centered
+    expect(screen.queryByRole('heading', { name: 'No plan yet' })).not.toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole('button', { name: /go to itinerary/i }));
+    expect(onShowItinerary).toHaveBeenCalledTimes(1);
+  });
+
+  it('still says there is no plan when there is no hotel either', async () => {
+    api.get.mockResolvedValue([]);
+    render(<TripMap plan={null} tripId={7} onShowItinerary={vi.fn()} />);
+
+    expect(await screen.findByRole('heading', { name: 'No plan yet' })).toBeInTheDocument();
+    expect(screen.queryByTestId('maps-api')).not.toBeInTheDocument();
+  });
+});
+
+describe('Hotels on a multi-city trip', () => {
+  const TWO_PINS = [
+    { stay_number: 1, city: 'Kathmandu, Nepal', latitude: 27.71, longitude: 85.32 },
+    { stay_number: 2, city: 'Chitwan, Nepal', latitude: 27.58, longitude: 84.5 },
+  ];
+
+  it('shows one pin per stay, named by town, and fits them all in view', async () => {
+    const map = fakeMap();
+    api.get.mockResolvedValue(TWO_PINS);
+    render(<TripMap plan={PLAN} tripId={7} />);
+
+    expect(await screen.findByRole('button', { name: 'Marker Your hotel · Kathmandu' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Marker Your hotel · Chitwan' })).toBeInTheDocument();
+    await waitFor(() => expect(map.fitBounds.mock.calls.at(-1)[0].points).toHaveLength(5)); // 3 stops + 2 hotels
+    expect(map.fitBounds.mock.calls.at(-1)[0].points).toEqual(
+      expect.arrayContaining([
+        { lat: 27.71, lng: 85.32 },
+        { lat: 27.58, lng: 84.5 },
+      ]),
+    );
+  });
+
+  it('lists each hotel first, saying which city it is for', async () => {
+    api.get.mockResolvedValue(TWO_PINS);
+    render(<TripMap plan={PLAN} tripId={7} />);
+
+    await screen.findByRole('button', { name: 'Marker Your hotel · Kathmandu' });
+    const names = stopList()
+      .getAllByRole('button')
+      .map((button) => button.getAttribute('aria-label'));
+    expect(names.slice(0, 2)).toEqual([
+      "Your hotel · Kathmandu, where you're staying in Kathmandu, Nepal",
+      "Your hotel · Chitwan, where you're staying in Chitwan, Nepal",
+    ]);
+
+    await userEvent.click(stopList().getByRole('button', { name: /your hotel · chitwan/i }));
+
+    const details = screen.getByRole('dialog', { name: 'Map details' });
+    expect(details).toHaveTextContent('Your hotel · Chitwan');
+    expect(details).toHaveTextContent("Where you're staying in Chitwan, Nepal, from the Stay tab.");
+  });
+
+  it('a single hotel is just "Your hotel"', async () => {
+    api.get.mockResolvedValue(HOTEL_PINS);
+    render(<TripMap plan={PLAN} tripId={7} />);
+
+    expect(await screen.findByRole('button', { name: 'Marker Your hotel' })).toBeInTheDocument();
+    expect(screen.queryByText(/Your hotel ·/)).toBeNull();
+  });
+});
+
 describe('Trip map fallbacks', () => {
   it('points to generating a plan when there is none', async () => {
     const onShowItinerary = vi.fn();
@@ -195,5 +346,23 @@ describe('Trip map fallbacks', () => {
     expect(screen.getByRole('status')).toHaveTextContent(/the map can't load right now/i);
     expect(screen.queryByTestId('google-map')).not.toBeInTheDocument();
     expect(stopList().getAllByRole('button')).toHaveLength(3);
+  });
+});
+
+describe('Hotels of a split stay', () => {
+  const SPLIT_PINS = [
+    { stay_number: 1, city: 'Kathmandu, Nepal', part: 1, parts: 2, latitude: 27.71, longitude: 85.32 },
+    { stay_number: 2, city: 'Kathmandu, Nepal', part: 2, parts: 2, latitude: 27.72, longitude: 85.31 },
+  ];
+
+  it('names each part, so two hotels in one town can be told apart', async () => {
+    api.get.mockResolvedValue(SPLIT_PINS);
+    render(<TripMap plan={PLAN} tripId={7} />);
+
+    expect(await screen.findByRole('button', { name: 'Marker Your hotel · Kathmandu (part 1)' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Marker Your hotel · Kathmandu (part 2)' })).toBeInTheDocument();
+    expect(
+      stopList().getByRole('button', { name: "Your hotel · Kathmandu (part 2), where you're staying in Kathmandu, Nepal (part 2)" }),
+    ).toBeInTheDocument();
   });
 });

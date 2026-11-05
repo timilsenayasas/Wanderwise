@@ -47,7 +47,7 @@ describe('Profile page', () => {
             id: 1,
             user_id: 1,
             home_city: 'Fort Worth',
-            interests: 'Food, sightseeing',
+            interests: ['Food', 'sightseeing'],
             default_budget: 1500,
             travel_style: 'Relaxed',
         });
@@ -69,7 +69,7 @@ describe('Profile page', () => {
             id: 0,
             user_id: 1,
             home_city: '',
-            interests: '',
+            interests: [],
             default_budget: null,
             travel_style: '',
         });
@@ -78,7 +78,7 @@ describe('Profile page', () => {
             id: 1,
             user_id: 1,
             home_city: 'Fort Worth',
-            interests: 'Food, beaches',
+            interests:  ['Food', 'beaches'],
             default_budget: 2000,
             travel_style: 'Relaxed',
         });
@@ -99,7 +99,7 @@ describe('Profile page', () => {
         await waitFor(() => {
             expect(api.put).toHaveBeenCalledWith('/me/preferences', {
                 home_city: 'Fort Worth',
-                interests: 'Food, beaches',
+                interests: ['Food', 'beaches'],
                 default_budget: 2000,
                 travel_style: 'Relaxed',
             });

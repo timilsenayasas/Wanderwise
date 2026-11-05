@@ -91,4 +91,7 @@
   /* Gradients */
   /* Safe behind white text (every stop is >= 4.5:1 with #fff). */
   --gradient-sunset: linear-gradient(135deg, #1f3864 0%, #2e3f73 55%, #9c3a19 100%);
+  /* Bottom of a photo, behind text on it (Where to stay). --color-on-dark on the darkest
+     stop over a pure white photo: 6.5:1. Only the strip with text needs it. */
+  --gradient-photo-scrim: linear-gradient(to top, rgba(27, 34, 51, 0.75) 0%, rgba(27, 34, 51, 0.75) 40%, rgba(27, 34, 51, 0) 100%);
 }

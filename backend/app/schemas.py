@@ -2,7 +2,7 @@
 
 import re
 from datetime import date, datetime
-from typing import Literal
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
@@ -56,7 +56,7 @@ class UserOut(BaseModel):
 # --- Preferences (F1) -----------------------------------------------------
 class PreferenceIn(BaseModel):
     home_city: str = ""
-    interests: str = ""
+    interests: list[str] = Field(default_factory=list)
     default_budget: float | None = None
     travel_style: str = ""
 
@@ -67,7 +67,7 @@ class PreferenceOut(BaseModel):
     id: int
     user_id: int
     home_city: str
-    interests: str
+    interests: list[str]
     default_budget: float | None
     travel_style: str
 
@@ -128,9 +128,21 @@ class ItineraryActivity(BaseModel):
     check_start_time = field_validator("start_time")(_clock_time)
 
 
+def _base_city(v: str | None) -> str | None:
+    """Trimmed and capped at the column's length; blank means "the trip's destination"."""
+    v = " ".join((v or "").split())[:120]
+    return v or None
+
+
 class ItineraryDay(BaseModel):
     date: date
+    # Where the traveler sleeps that night. Optional, so an answer without it still saves.
+    base_city: str | None = None
+    # The night is spent travelling (no hotel). Optional for the same reason.
+    in_transit: bool = False
     activities: list[ItineraryActivity]
+
+    check_base_city = field_validator("base_city")(_base_city)
 
 
 class ItineraryResponse(BaseModel):
@@ -154,6 +166,8 @@ class SavedDay(BaseModel):
     id: int
     day_number: int
     date: date
+    base_city: str | None  # None for plans saved before multi-city trips: the trip's destination
+    in_transit: bool  # the plan's mark; the traveler's own say is in GET /lodging's nights
     activities: list[SavedActivity]
 
 
@@ -190,6 +204,8 @@ class CostItemOut(BaseModel):
     amount: float
     source: str
     trip_date: date | None
+    # The Where to stay choice's Lodging line: read-only here, changed on the Stay tab.
+    from_stay: bool = False
 
 
 class SavedPlanOut(BaseModel):
@@ -213,6 +229,14 @@ class DayTotal(BaseModel):
     amount: float
 
 
+class BudgetBreakdownOut(BaseModel):
+    """The total in three parts, for the Itinerary: plan + lodging + other == total."""
+
+    plan: float  # the AI plan's cost lines
+    lodging: float  # every Lodging line: the Stay tab's and ones the traveler typed
+    other: float  # the traveler's other cost lines
+
+
 class BudgetOut(BaseModel):
     """Worked out from the trip's cost lines, not the AI's own total."""
 
@@ -224,7 +248,203 @@ class BudgetOut(BaseModel):
     per_day: list[DayTotal]  # the saved plan's days; empty without a plan
     not_by_day: float  # user lines not on a plan day; sum(per_day) + not_by_day == total
     total: float
+    breakdown: BudgetBreakdownOut
     budget: float | None
     remaining: float | None  # budget - total; negative when over budget
     over_budget: bool | None
     items: list[CostItemOut]
+
+
+# --- Where to stay --------------------------------------------------------
+# How a hotel's stay total compares to the budget left for lodging (see lodging.py).
+LodgingFit = Literal["fits", "slightly_over", "over"]
+LodgingChoice = Literal["hotel", "own", "skip"]
+SkipReason = Literal["have_place", "not_needed"]
+
+
+class PhotoAuthorOut(BaseModel):
+    """Google requires every photo to credit its authors, linked to their profile."""
+
+    name: str
+    uri: str | None
+
+
+class HotelPhotoOut(BaseModel):
+    uri: str  # Google's image URL; short-lived, never stored
+    authors: list[PhotoAuthorOut]
+
+
+class HotelOut(BaseModel):
+    """A hotel's details, fetched fresh from Google Places each time (never stored)."""
+
+    place_id: str
+    name: str
+    area: str
+    address: str
+    rating: float | None
+    review_count: int | None
+    google_maps_uri: str | None
+    photo: HotelPhotoOut | None
+
+
+class HotelSuggestionOut(HotelOut):
+    nightly_estimate: float | None  # AI estimate in USD; None if it couldn't be estimated
+    stay_total: float | None  # nightly_estimate x the trip's nights
+    fit: LodgingFit | None  # None without a trip budget or an estimate
+    best_fit: bool  # true on at most one suggestion
+
+
+def _nightly_price(v: float | None) -> float | None:
+    if v is None:
+        return v
+    if v < 0:
+        raise ValueError("Nightly price can't be negative")
+    return round(v, 2)  # whole cents, like every cost line
+
+
+def _at_least_one_night(v: int | None) -> int | None:
+    if v is not None and v < 1:
+        raise ValueError("Nights must be at least 1")
+    return v  # the most is the stay's length (checked in lodging.py)
+
+
+class HotelChoiceIn(BaseModel):
+    """Pick a suggested hotel. Without a price, its estimate is used; without nights, the whole stay."""
+
+    choice: Literal["hotel"]
+    place_id: str = Field(min_length=1, max_length=255)
+    nightly_price: float | None = Field(default=None, allow_inf_nan=False)
+    nights: int | None = None
+
+    check_price = field_validator("nightly_price")(_nightly_price)
+    check_nights = field_validator("nights")(_at_least_one_night)
+
+
+class OwnHotelIn(BaseModel):
+    """A hotel the traveler found themselves."""
+
+    choice: Literal["own"]
+    name: str = Field(max_length=200)
+    nightly_price: float = Field(allow_inf_nan=False)
+    nights: int
+
+    check_price = field_validator("nightly_price")(_nightly_price)
+    check_nights = field_validator("nights")(_at_least_one_night)
+
+    @field_validator("name")
+    @classmethod
+    def name_not_blank(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Enter your hotel's name")
+        return v
+
+
+class SkipLodgingIn(BaseModel):
+    """No hotel to book: "I already have a place" or "No hotel needed"."""
+
+    choice: Literal["skip"]
+    reason: SkipReason
+
+
+LodgingChoiceIn = Annotated[HotelChoiceIn | OwnHotelIn | SkipLodgingIn, Field(discriminator="choice")]
+
+
+class LodgingChoiceOut(BaseModel):
+    choice: LodgingChoice
+    skip_reason: SkipReason | None
+    place_id: str | None
+    # A picked hotel's details: None if Google couldn't be reached, and in PUT responses
+    # (the page already shows the suggestion, so it isn't fetched again).
+    hotel: HotelOut | None
+    custom_name: str | None  # the traveler's own hotel
+    nightly_price: float | None
+    nights: int | None
+    total: float | None  # nightly_price x nights, the Lodging cost line's amount
+    fit: LodgingFit | None  # total against the budget left for this stay; None for skips or without a budget
+    nights_exceed_stay: bool  # the stay got shorter (dates or a new plan) after choosing
+
+
+class StayOut(BaseModel):
+    """A run of nights in one base city (worked out from the plan, not stored) and its choice."""
+
+    number: int  # 1 for the first stay; choices are matched to stays by this
+    city: str
+    check_in: date
+    check_out: date
+    nights: int
+    budget_left: float | None  # the lodging budget minus the other stays' choices
+    # Without Google details in the overview; with them on the stay's own page.
+    choice: LodgingChoiceOut | None
+    plan_changed: bool  # the choice was made for a different city than this stay now has
+    choice_city: str | None  # the city the choice was made for
+    # A stay split by the traveler (one city, more than one hotel): part 2 of 2, say. None otherwise.
+    part: int | None = None
+    parts: int | None = None
+    merge_night: date | None = None  # this part starts at a split: DELETE /splits/{merge_night} merges it back
+    can_split: bool = False  # at least 2 nights, and the trip has room for another stay
+
+
+class EarlierChoiceOut(BaseModel):
+    """A choice for a stay the current plan no longer has. Its Lodging line stays until it's removed."""
+
+    number: int
+    city: str | None
+    choice: LodgingChoiceOut
+
+
+class NightOut(BaseModel):
+    """One night of the trip (by the date it starts) and whether it's spent travelling."""
+
+    date: date
+    in_transit: bool  # no hotel needed, and part of no stay
+    set_by: Literal["plan", "you"]  # the AI plan's mark (or none), or the traveler's switch
+
+
+class NightIn(BaseModel):
+    """The traveler's switch: "I'm travelling this night" (true) or not (false)."""
+
+    in_transit: bool
+
+
+class LodgingOverviewOut(BaseModel):
+    """Every night and stay with its choice, without any Google calls (Stay tab, Itinerary)."""
+
+    trip_id: int
+    currency: str
+    lodging_budget_left: float | None  # trip budget minus everything except lodging
+    nights: list[NightOut]
+    stays: list[StayOut]  # none only when every night is in transit
+    earlier_choices: list[EarlierChoiceOut]
+
+
+class StayPageOut(BaseModel):
+    """One stay's section: fresh hotel suggestions for its city, and its choice with Google details."""
+
+    trip_id: int
+    currency: str
+    lodging_budget_left: float | None
+    stay: StayOut
+    suggestions: list[HotelSuggestionOut]
+    suggestions_status: Literal["ok", "not_configured", "unavailable"]
+    # "no_budget": sorted by rating; "none_fit": no hotel fits what's left for this stay.
+    fit_note: Literal["no_budget", "none_fit"] | None
+
+
+class HotelNameOut(BaseModel):
+    """A picked hotel's name from Google, fetched fresh for the Itinerary and never stored."""
+
+    stay_number: int
+    place_id: str
+    name: str
+
+
+class LodgingPinOut(BaseModel):
+    """A stay's picked hotel on the Map tab."""
+
+    stay_number: int
+    city: str
+    part: int | None = None  # a split stay's part, so its pins can be told apart
+    parts: int | None = None
+    latitude: float
+    longitude: float

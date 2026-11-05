@@ -44,7 +44,7 @@ export default function NewTrip() {
           budget: preferences.default_budget == null
             ? ''
             : String(preferences.default_budget),
-          interests: preferences.interests || '',
+          interests: Array.isArray(preferences.interests) ? preferences.interests.join(', ') : '',
         };
 
         setForm((current) => {

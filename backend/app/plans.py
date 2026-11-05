@@ -12,7 +12,17 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from app.budget import PLAN_CURRENCY, to_budget_category, to_cents, to_dollars
-from app.models import PLAN_SOURCE, Activity, CostItem, Trip, TripDay
+from app.models import (
+    PLAN_SOURCE,
+    Activity,
+    CostItem,
+    Trip,
+    TripDay,
+    TripHotelEstimate,
+    TripLodging,
+    TripNightOverride,
+    TripStaySplit,
+)
 from app.schemas import (
     CostItemOut,
     ItineraryActivity,
@@ -61,8 +71,16 @@ def clear_plan(trip: Trip, db: Session) -> None:
 
 
 def clear_trip(trip: Trip, db: Session) -> None:
-    """Delete the plan and every cost line (plan and user), before deleting the trip. The caller commits."""
+    """Delete the plan, lodging choices and splits, estimates, night overrides and cost lines, before deleting the trip.
+
+    The caller commits. (Regenerating only clears the plan: overrides and choices outlive it.)
+    """
     clear_plan(trip, db)
+    db.execute(delete(TripHotelEstimate).where(TripHotelEstimate.trip_id == trip.id))
+    db.execute(delete(TripNightOverride).where(TripNightOverride.trip_id == trip.id))
+    db.execute(delete(TripStaySplit).where(TripStaySplit.trip_id == trip.id))
+    # Before the cost lines: trip_lodging points at its Lodging line.
+    db.execute(delete(TripLodging).where(TripLodging.trip_id == trip.id))
     db.execute(delete(CostItem).where(CostItem.trip_id == trip.id))
 
 
@@ -125,7 +143,13 @@ def save_plan(
     coordinates = coordinates or {}
 
     for number, day in enumerate(itinerary.days, start=1):
-        trip_day = TripDay(trip_id=trip.id, day_number=number, trip_date=day.date)
+        trip_day = TripDay(
+            trip_id=trip.id,
+            day_number=number,
+            trip_date=day.date,
+            base_city=day.base_city,
+            in_transit=day.in_transit,
+        )
         db.add(trip_day)
         db.flush()  # assigns trip_day.id for its activities
         db.add_all(_activity_row(trip_day, activity, coordinates) for activity in day.activities)
@@ -178,7 +202,14 @@ def load_plan(trip: Trip, db: Session) -> SavedPlanOut | None:
         currency=PLAN_CURRENCY,
         total_estimated_cost=round(sum(a.estimated_cost for a in activities if a.estimated_cost), 2),
         days=[
-            SavedDay(id=day.id, day_number=day.day_number, date=day.trip_date, activities=by_day[day.id])
+            SavedDay(
+                id=day.id,
+                day_number=day.day_number,
+                date=day.trip_date,
+                base_city=day.base_city,
+                in_transit=day.in_transit,
+                activities=by_day[day.id],
+            )
             for day in days
         ],
         cost_items=[CostItemOut.model_validate(item) for item in cost_items],
