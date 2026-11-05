@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     llm_api_key: str = ""
     maps_api_key: str = ""
     weather_api_key: str = ""
+    pexels_api_key: str = ""
 
     @property
     def cors_origin_list(self) -> list[str]:
