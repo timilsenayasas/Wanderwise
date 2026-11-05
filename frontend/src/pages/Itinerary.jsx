@@ -579,23 +579,8 @@ export default function Itinerary() {
                 </Card>
               }
             >
-<<<<<<< HEAD
-              <Suspense
-                fallback={
-                  <Spinner
-                    size="lg"
-                    label="Loading the map"
-                  />
-                }
-              >
-                <TripMap
-                  plan={plan}
-                  onShowItinerary={showItinerary}
-                />
-=======
               <Suspense fallback={<Spinner size="lg" label="Loading the map" />}>
                 <TripMap plan={plan} tripId={trip.id} onShowItinerary={showItinerary} />
->>>>>>> origin/main
               </Suspense>
             </ErrorBoundary>
           )}
