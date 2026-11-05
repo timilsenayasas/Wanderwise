@@ -1,6 +1,6 @@
 
 /* S5 My Trips (F12): the user's saved trips, newest first. */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import Button from '../components/Button';
@@ -16,7 +16,13 @@ import './MyTrips.css';
  * One saved trip. The whole card opens the trip; Open/Delete sit above that link.
  * `maxTags` trims long interest lists (Home shows 3 plus "+N more").
  */
-export function TripCard({ trip, onDelete, deleting, maxTags }) {
+export function TripCard({
+  trip,
+  onDelete,
+  deleting,
+  deleteDisabled = false,
+  maxTags,
+}) {
   const [confirming, setConfirming] = useState(false);
   const days = tripLength(trip.start_date, trip.end_date);
   const tags = maxTags ? trip.interests.slice(0, maxTags) : trip.interests;
@@ -81,6 +87,7 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
                 size="sm"
                 variant="accent"
                 onClick={() => onDelete(trip)}
+                disabled={deleteDisabled}
                 loading={deleting}
                 loadingText="Deleting…"
               >
@@ -101,6 +108,7 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
                 size="sm"
                 variant="ghost"
                 onClick={() => setConfirming(true)}
+                disabled={deleteDisabled}
               >
                 Delete
               </Button>
@@ -142,8 +150,12 @@ export default function MyTrips() {
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
 
+  // Prevent overlapping delete requests.
+  const deletionInProgress = useRef(false);
+
   async function loadTrips() {
     setStatus('loading');
+    setError('');
 
     try {
       setTrips(await api.get('/trips'));
@@ -159,6 +171,12 @@ export default function MyTrips() {
   }, []);
 
   async function handleDelete(trip) {
+    // Block another deletion while one is in progress.
+    if (deletionInProgress.current) {
+      return;
+    }
+
+    deletionInProgress.current = true;
     setDeletingId(trip.id);
 
     try {
@@ -172,6 +190,7 @@ export default function MyTrips() {
     } catch (err) {
       toast.error(err.message || 'Could not delete the trip.');
     } finally {
+      deletionInProgress.current = false;
       setDeletingId(null);
     }
   }
@@ -246,6 +265,7 @@ export default function MyTrips() {
                 trip={trip}
                 onDelete={handleDelete}
                 deleting={deletingId === trip.id}
+                deleteDisabled={deletingId !== null}
               />
             </li>
           ))}
