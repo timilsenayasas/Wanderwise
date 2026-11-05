@@ -385,8 +385,8 @@ def test_repeated_meals_and_transportation_are_allowed():
     assert duplicates == []
 
 
-def test_duplicate_itinerary_is_rejected_before_saving(client, monkeypatch):
-    """Repeated attractions should prevent an itinerary from being saved."""
+def test_duplicate_itinerary_is_saved_after_final_retry(client, monkeypatch, caplog):
+    """Keep the valid plan if duplicates remain after both attempts."""
 
     duplicate_plan = {
         **FIRST_PLAN,
@@ -406,20 +406,18 @@ def test_duplicate_itinerary_is_rejected_before_saving(client, monkeypatch):
         ],
     }
 
-    use_fake_gemini(monkeypatch, duplicate_plan, duplicate_plan)
+    prompts = use_fake_gemini(monkeypatch, duplicate_plan, duplicate_plan)
 
     register(client)
     trip_id = create_trip(client)
 
     response = client.post(f"/api/trips/{trip_id}/plan")
 
-    assert response.status_code == 503
-    assert response.json()["detail"]["message"] == (
-        "The generated itinerary contains repeated attractions. Please regenerate."
-    )
-
-    assert plan_row_counts() == (0, 0, 0)
-    assert llm.itinerary_cache == {}
+    assert response.status_code == 200
+    assert len(prompts) == 2
+    assert plan_row_counts() == (2, 2, 1)
+    assert "Keeping itinerary with repeated activities" in caplog.text
+    assert client.get(f"/api/trips/{trip_id}/plan").json() == response.json()
 
 
 def test_duplicate_itinerary_succeeds_after_retry(client, monkeypatch):

@@ -1,3 +1,4 @@
+
 """Gemini itinerary service (F3): prompt, call, validate, cache."""
 
 import json
@@ -107,7 +108,6 @@ Use exactly this JSON structure:
 """.strip()
 
 
-
 def find_duplicate_activities(itinerary: ItineraryResponse) -> list[str]:
     """Find repeated named attractions across different itinerary days."""
 
@@ -136,7 +136,6 @@ def find_duplicate_activities(itinerary: ItineraryResponse) -> list[str]:
     return duplicates
 
 
-
 def build_cache_key(trip: TripPlanRequest) -> str:
     """Create a consistent cache key from the trip request."""
 
@@ -146,14 +145,17 @@ def build_cache_key(trip: TripPlanRequest) -> str:
 def _remember(cache_key: str, itinerary: ItineraryResponse) -> None:
     itinerary_cache[cache_key] = itinerary
     itinerary_cache.move_to_end(cache_key)
+
     while len(itinerary_cache) > CACHE_MAX_ENTRIES:
         itinerary_cache.popitem(last=False)  # drop the oldest
+
 
 def generate_itinerary(trip: TripPlanRequest, use_cache: bool = True) -> ItineraryResponse:
     """Generate an itinerary with Gemini and validate the JSON response.
 
     use_cache=False always asks Gemini (e.g. "Regenerate" wants a different plan).
     If repeated attractions are detected, retry generation once.
+    If duplicates remain after the final attempt, log a warning and keep the plan.
     """
 
     cache_key = build_cache_key(trip)
@@ -253,7 +255,10 @@ def generate_itinerary(trip: TripPlanRequest, use_cache: bool = True) -> Itinera
                 + ". Generate a new itinerary with unique attractions on each day. "
                 + "Do not repeat these attractions across multiple days."
             )
-
-    raise LLMServiceError(
-        "The generated itinerary contains repeated attractions. Please regenerate."
-    )
+        else:
+            logger.warning(
+                "Keeping itinerary with repeated activities after final attempt: %s",
+                ", ".join(duplicates),
+            )
+            _remember(cache_key, itinerary)
+            return itinerary
