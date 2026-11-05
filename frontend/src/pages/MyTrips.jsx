@@ -7,7 +7,7 @@ import Button from '../components/Button';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import Icon from '../components/Icon';
-import Spinner from '../components/Spinner';
+import Skeleton from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import { formatBudget, formatDateRange, tripLength } from '../lib/format';
 import './MyTrips.css';
@@ -16,7 +16,13 @@ import './MyTrips.css';
  * One saved trip. The whole card opens the trip; Open/Delete sit above that link.
  * `maxTags` trims long interest lists (Home shows 3 plus "+N more").
  */
-export function TripCard({ trip, onDelete, deleting, maxTags }) {
+export function TripCard({
+  trip,
+  onDelete,
+  deleting,
+  deleteDisabled = false,
+  maxTags,
+}) {
   const [confirming, setConfirming] = useState(false);
   const days = tripLength(trip.start_date, trip.end_date);
   const tags = maxTags ? trip.interests.slice(0, maxTags) : trip.interests;
@@ -25,6 +31,7 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
   return (
     <Card as="article" padding="md" interactive className="trip-card">
       <p className="trip-card__from">From {trip.origin}</p>
+
       <h3 className="trip-card__title">
         <Link to={`/trips/${trip.id}`} className="trip-card__link">
           {trip.destination}
@@ -38,6 +45,7 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
           {formatDateRange(trip.start_date, trip.end_date)} · {days}{' '}
           {days === 1 ? 'day' : 'days'}
         </li>
+
         <li>
           <Icon name="wallet" size={18} />
           <span className="visually-hidden">Budget: </span>
@@ -61,7 +69,9 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
         <div className="trip-card__actions">
           {confirming ? (
             <>
-              <span className="trip-card__confirm">Delete this trip?</span>
+              <span className="trip-card__confirm">
+                Delete this trip?
+              </span>
               <Button
                 size="sm"
                 variant="ghost"
@@ -74,6 +84,7 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
                 size="sm"
                 variant="accent"
                 onClick={() => onDelete(trip)}
+                disabled={deleteDisabled}
                 loading={deleting}
                 loadingText="Deleting…"
               >
@@ -82,13 +93,18 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
             </>
           ) : (
             <>
-              <Button size="sm" variant="secondary" to={`/trips/${trip.id}`}>
+              <Button
+                size="sm"
+                variant="secondary"
+                to={`/trips/${trip.id}`}
+              >
                 Open
               </Button>
               <Button
                 size="sm"
                 variant="ghost"
                 onClick={() => setConfirming(true)}
+                disabled={deleteDisabled}
               >
                 Delete
               </Button>
@@ -100,16 +116,42 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
   );
 }
 
+/**
+ * B2: Skeleton placeholder for a saved trip card.
+ * Displays while trip data is being fetched.
+ */
+function TripCardSkeleton() {
+  return (
+    <Card
+      as="article"
+      padding="md"
+      className="trip-card"
+      aria-hidden="true"
+    >
+      <Skeleton width="45%" height="14px" />
+      <Skeleton width="70%" height="26px" />
+      <Skeleton width="85%" height="16px" />
+      <Skeleton width="65%" height="16px" />
+      <Skeleton width="55%" height="24px" rounded />
+      <Skeleton width="40%" height="34px" rounded />
+    </Card>
+  );
+}
+
 export default function MyTrips() {
   const toast = useToast();
+
   const [trips, setTrips] = useState([]);
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
   const [retrying, setRetrying] = useState(false);
 
-  // Prevent multiple retry requests from starting together.
+  // Prevent overlapping retry requests.
   const retryInProgress = useRef(false);
+
+  // Prevent overlapping delete requests.
+  const deletionInProgress = useRef(false);
 
   async function loadTrips(isRetry = false) {
     if (isRetry) {
@@ -119,6 +161,7 @@ export default function MyTrips() {
       setRetrying(true);
     } else {
       setStatus('loading');
+      setError('');
     }
 
     try {
@@ -142,15 +185,26 @@ export default function MyTrips() {
   }, []);
 
   async function handleDelete(trip) {
+    // Block another deletion while one is in progress.
+    if (deletionInProgress.current) {
+      return;
+    }
+
+    deletionInProgress.current = true;
     setDeletingId(trip.id);
 
     try {
       await api.delete(`/trips/${trip.id}`);
-      setTrips((current) => current.filter((t) => t.id !== trip.id));
+
+      setTrips((current) =>
+        current.filter((t) => t.id !== trip.id)
+      );
+
       toast.success(`Deleted your trip to ${trip.destination}.`);
     } catch (err) {
       toast.error(err.message || 'Could not delete the trip.');
     } finally {
+      deletionInProgress.current = false;
       setDeletingId(null);
     }
   }
@@ -171,12 +225,24 @@ export default function MyTrips() {
         )}
       </header>
 
+      {/* B2: Skeleton loading cards */}
       {status === 'loading' && (
-        <div className="page-loading">
-          <Spinner size="lg" label="Loading your trips" />
+        <div role="status" aria-label="Loading your trips">
+          <span className="visually-hidden">
+            Loading your trips...
+          </span>
+
+          <ul className="my-trips__grid">
+            {[1, 2, 3].map((item) => (
+              <li key={item}>
+                <TripCardSkeleton />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
+      {/* Error state */}
       {status === 'error' && (
         <Card padding="lg">
           <p className="my-trips__alert" role="alert">
@@ -195,6 +261,7 @@ export default function MyTrips() {
         </Card>
       )}
 
+      {/* Empty state */}
       {status === 'ready' && trips.length === 0 && (
         <Card padding="lg">
           <EmptyState
@@ -209,6 +276,7 @@ export default function MyTrips() {
         </Card>
       )}
 
+      {/* Saved trips */}
       {status === 'ready' && trips.length > 0 && (
         <ul className="my-trips__grid">
           {trips.map((trip) => (
@@ -217,6 +285,7 @@ export default function MyTrips() {
                 trip={trip}
                 onDelete={handleDelete}
                 deleting={deletingId === trip.id}
+                deleteDisabled={deletingId !== null}
               />
             </li>
           ))}

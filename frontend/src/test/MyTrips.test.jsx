@@ -9,7 +9,14 @@ import MyTrips from '../pages/MyTrips';
 
 vi.mock('../api/client', async (importOriginal) => {
   const actual = await importOriginal();
-  return { ...actual, api: { get: vi.fn(), delete: vi.fn() } };
+
+  return {
+    ...actual,
+    api: {
+      get: vi.fn(),
+      delete: vi.fn(),
+    },
+  };
 });
 
 const TRIP = {
@@ -42,16 +49,21 @@ beforeEach(() => {
 describe('MyTrips', () => {
   it('lists saved trips with a link to each trip', async () => {
     api.get.mockResolvedValue([TRIP]);
+
     renderPage();
 
     expect(
-      await screen.findByRole('heading', { name: 'New York, NY' }),
+      await screen.findByRole('heading', {
+        name: 'New York, NY',
+      }),
     ).toBeInTheDocument();
 
     expect(screen.getByText(/4 days/)).toBeInTheDocument();
 
     expect(
-      screen.getByRole('link', { name: /new york, ny/i }),
+      screen.getByRole('link', {
+        name: /new york, ny/i,
+      }),
     ).toHaveAttribute('href', '/trips/7');
 
     expect(api.get).toHaveBeenCalledWith('/trips');
@@ -59,6 +71,7 @@ describe('MyTrips', () => {
 
   it('shows the empty state when there are no trips', async () => {
     api.get.mockResolvedValue([]);
+
     renderPage();
 
     expect(
@@ -69,10 +82,13 @@ describe('MyTrips', () => {
   it('deletes a trip after confirming', async () => {
     api.get.mockResolvedValue([TRIP]);
     api.delete.mockResolvedValue(null);
+
     renderPage();
 
     await userEvent.click(
-      await screen.findByRole('button', { name: 'Delete' }),
+      await screen.findByRole('button', {
+        name: 'Delete',
+      }),
     );
 
     expect(
@@ -80,7 +96,9 @@ describe('MyTrips', () => {
     ).toBeInTheDocument();
 
     await userEvent.click(
-      screen.getByRole('button', { name: 'Delete' }),
+      screen.getByRole('button', {
+        name: 'Delete',
+      }),
     );
 
     expect(api.delete).toHaveBeenCalledWith('/trips/7');
@@ -92,6 +110,7 @@ describe('MyTrips', () => {
 
   it('shows an error when loading trips fails', async () => {
     api.get.mockRejectedValue(new Error('Network unavailable'));
+
     renderPage();
 
     expect(
@@ -170,5 +189,105 @@ describe('MyTrips', () => {
     await waitFor(() => {
       expect(api.get).toHaveBeenCalledTimes(2);
     });
+  });
+
+  it('prevents overlapping trip deletions', async () => {
+    const secondTrip = {
+      ...TRIP,
+      id: 8,
+      destination: 'Chicago, IL',
+    };
+
+    api.get.mockResolvedValue([TRIP, secondTrip]);
+
+    let finishDelete;
+
+    api.delete.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishDelete = resolve;
+        }),
+    );
+
+    const user = userEvent.setup();
+
+    renderPage();
+
+    await screen.findByRole('heading', {
+      name: 'Chicago, IL',
+    });
+
+    const deleteButtons = screen.getAllByRole('button', {
+      name: 'Delete',
+    });
+
+    await user.click(deleteButtons[0]);
+
+    const confirmButtons = screen.getAllByRole('button', {
+      name: 'Delete',
+    });
+
+    await user.click(confirmButtons[0]);
+
+    expect(api.delete).toHaveBeenCalledTimes(1);
+    expect(api.delete).toHaveBeenCalledWith('/trips/7');
+
+    expect(
+      screen.getByRole('button', {
+        name: /deleting/i,
+      }),
+    ).toBeDisabled();
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Delete',
+      }),
+    ).toBeDisabled();
+
+    finishDelete(null);
+
+    await waitFor(() => {
+      expect(
+        screen.queryByRole('heading', {
+          name: 'New York, NY',
+        }),
+      ).not.toBeInTheDocument();
+    });
+
+    expect(api.delete).toHaveBeenCalledTimes(1);
+
+    expect(
+      screen.getByRole('button', {
+        name: 'Delete',
+      }),
+    ).toBeEnabled();
+  });
+
+  // B2: Verify skeleton loading screens
+  it('shows skeleton cards while trips are loading', async () => {
+    let finishLoading;
+
+    api.get.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishLoading = resolve;
+        }),
+    );
+
+    renderPage();
+
+    expect(
+      screen.getByRole('status', { name: 'Loading your trips' }),
+    ).toBeInTheDocument();
+
+    expect(document.querySelectorAll('.skeleton')).toHaveLength(18);
+
+    finishLoading([TRIP]);
+
+    expect(
+      await screen.findByRole('heading', { name: 'New York, NY' }),
+    ).toBeInTheDocument();
+
+    expect(document.querySelectorAll('.skeleton')).toHaveLength(0);
   });
 });
