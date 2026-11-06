@@ -364,6 +364,9 @@ export default function Itinerary() {
             <dd>{formatBudget(trip.budget)}</dd>
           </div>
         </dl>
+                <Button to={`/trips/${tripId}/edit`} variant="secondary">
+          Edit Trip
+        </Button>
 
         {trip.interests.length > 0 && (
           <ul
