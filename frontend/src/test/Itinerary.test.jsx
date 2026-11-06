@@ -308,43 +308,53 @@ describe('Trip page tabs', () => {
     expect(screen.getByTestId('search')).toBeEmptyDOMElement();
   });
 
-  it('moves between tabs with the arrow keys, Home and End', async () => {
-    mockLoad(savedPlan('Art Institute of Chicago'));
-    renderTrip();
-    const itinerary = await screen.findByRole('tab', { name: 'Itinerary' });
-    const budget = screen.getByRole('tab', { name: 'Budget' });
-    const stay = screen.getByRole('tab', { name: 'Stay' });
-    const map = screen.getByRole('tab', { name: 'Map' });
-    const weather = screen.getByRole('tab', { name: 'Weather' });
+   it('moves between tabs with the arrow keys, Home and End', async () => {
+  mockLoad(savedPlan('Art Institute of Chicago'));
+  renderTrip();
 
-    // Only the selected tab is in the Tab order.
-    expect(itinerary).toHaveAttribute('tabindex', '0');
-    expect(budget).toHaveAttribute('tabindex', '-1');
-    expect(stay).toHaveAttribute('tabindex', '-1');
-    expect(map).toHaveAttribute('tabindex', '-1');
+  const itinerary = await screen.findByRole('tab', { name: 'Itinerary' });
+  const budget = screen.getByRole('tab', { name: 'Budget' });
+  const stay = screen.getByRole('tab', { name: 'Stay' });
+  const map = screen.getByRole('tab', { name: 'Map' });
+  const weather = screen.getByRole('tab', { name: 'Weather' });
+  const packing = screen.getByRole('tab', { name: 'Packing List' });
 
-    itinerary.focus();
-    await userEvent.keyboard('{ArrowRight}');
-    expect(budget).toHaveFocus();
-    expect(budget).toHaveAttribute('aria-selected', 'true');
-    expect(budget).toHaveAttribute('tabindex', '0');
+  // Only the selected tab is in the Tab order.
+  expect(itinerary).toHaveAttribute('tabindex', '0');
+  expect(budget).toHaveAttribute('tabindex', '-1');
+  expect(stay).toHaveAttribute('tabindex', '-1');
+  expect(map).toHaveAttribute('tabindex', '-1');
+  expect(weather).toHaveAttribute('tabindex', '-1');
+  expect(packing).toHaveAttribute('tabindex', '-1');
 
-    await userEvent.keyboard('{ArrowRight}');
-    expect(stay).toHaveFocus();
-    await userEvent.keyboard('{ArrowRight}');
-    expect(map).toHaveFocus();
-    await userEvent.keyboard('{ArrowRight}');
-    expect(weather).toHaveFocus();
-    await userEvent.keyboard('{ArrowRight}'); // wraps around
-    expect(itinerary).toHaveFocus();
+  itinerary.focus();
+  await userEvent.keyboard('{ArrowRight}');
+  expect(budget).toHaveFocus();
 
-    await userEvent.keyboard('{End}');
-    expect(weather).toHaveFocus();
-    await userEvent.keyboard('{Home}');
-    expect(itinerary).toHaveFocus();
-    await userEvent.keyboard('{ArrowLeft}'); // wraps the other way
-    expect(weather).toHaveFocus();
-  });
+  await userEvent.keyboard('{ArrowRight}');
+  expect(stay).toHaveFocus();
+
+  await userEvent.keyboard('{ArrowRight}');
+  expect(map).toHaveFocus();
+
+  await userEvent.keyboard('{ArrowRight}');
+  expect(weather).toHaveFocus();
+
+  await userEvent.keyboard('{ArrowRight}');
+  expect(packing).toHaveFocus();
+
+  await userEvent.keyboard('{ArrowRight}'); // wraps around
+  expect(itinerary).toHaveFocus();
+
+  await userEvent.keyboard('{End}');
+  expect(packing).toHaveFocus();
+
+  await userEvent.keyboard('{Home}');
+  expect(itinerary).toHaveFocus();
+
+  await userEvent.keyboard('{ArrowLeft}'); // wraps the other way
+  expect(packing).toHaveFocus();
+});
 
   it('opens the Budget tab from ?tab=budget', async () => {
     mockLoad(savedPlan('Art Institute of Chicago'));

@@ -27,7 +27,7 @@ from app.config import settings
 from app.database import SessionLocal
 from app.db_migrate import upgrade_database
 from app.lodging import clear_stale_coords
-from app.routers import auth, budget, lodging, plan, preferences, transport, trips, weather
+from app.routers import auth, budget, lodging, packing, plan, preferences, transport, trips, weather
 
 
 @asynccontextmanager
@@ -62,6 +62,7 @@ app.include_router(trips.router)
 app.include_router(plan.router)
 app.include_router(budget.router)
 app.include_router(weather.router)
+app.include_router(packing.router)
 app.include_router(lodging.router)
 app.include_router(transport.router)
 

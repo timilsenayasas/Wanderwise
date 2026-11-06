@@ -14,6 +14,7 @@ import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import ErrorBoundary from '../components/ErrorBoundary';
 import ItineraryView from '../components/ItineraryView';
+import PackingListTab from '../components/PackingListTab';
 import Skeleton from '../components/Skeleton';
 import Spinner from '../components/Spinner';
 import Tabs, { TabPanel, tabId } from '../components/Tabs';
@@ -32,6 +33,7 @@ const TRIP_TABS = [
   { id: 'stay', label: 'Stay' },
   { id: 'map', label: 'Map' },
   { id: 'weather', label: 'Weather' },
+  { id: 'packing', label: 'Packing List' },
 ];
 
 export default function Itinerary() {
@@ -589,6 +591,10 @@ export default function Itinerary() {
 
         <TabPanel idPrefix="trip" id="weather" selected={tab}>
           {tab === 'weather' && <WeatherTab trip={trip} />}
+        </TabPanel>
+
+        <TabPanel idPrefix="trip" id="packing" selected={tab}>
+          {tab === 'packing' && <PackingListTab trip={trip} />}
         </TabPanel>
       </div>
     </div>

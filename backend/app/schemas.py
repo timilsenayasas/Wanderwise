@@ -465,3 +465,15 @@ class LodgingPinOut(BaseModel):
     parts: int | None = None
     latitude: float
     longitude: float
+
+class PackingListSections(BaseModel):
+    clothing: list[str]
+    weather_essentials: list[str]
+    activity_gear: list[str]
+    personal_essentials: list[str]
+
+
+class PackingListOut(BaseModel):
+    trip_id: int
+    destination: str
+    sections: PackingListSections
