@@ -41,6 +41,7 @@ class Settings(BaseSettings):
     # API keys for LLM, maps, and weather integrations.
     llm_api_key: str = ""
     maps_api_key: str = ""
+    routes_api_key: str = ""
     weather_api_key: str = ""
     pexels_api_key: str = ""
 

@@ -16,13 +16,14 @@ import pytest
 os.environ["DATABASE_URL"] = f"sqlite:///{Path(tempfile.mkdtemp()) / 'startup.db'}"
 os.environ["JWT_SECRET"] = "test-secret-not-for-production-use-only"
 os.environ["COOKIE_SECURE"] = "false"
+
 # Ignore any real key in backend/.env, so tests never make billed Geocoding calls.
 os.environ["MAPS_API_KEY"] = ""
 os.environ["PEXELS_API_KEY"] = ""
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from fastapi.testclient import TestClient  # noqa: E402
-from sqlalchemy import create_engine  # noqa: E402
+from sqlalchemy import create_engine, event  # noqa: E402
 from sqlalchemy.orm import sessionmaker  # noqa: E402
 
 from app.database import Base, get_db  # noqa: E402
@@ -30,7 +31,11 @@ from app.main import app  # noqa: E402
 from app.rate_limit import login_limiter  # noqa: E402
 from app.services import geocoding, places, pexels  # noqa: E402
 
-VALID_USER = {"email": "Ada@Example.com", "password": "correct-horse-battery", "name": "Ada"}
+VALID_USER = {
+    "email": "Ada@Example.com",
+    "password": "correct-horse-battery",
+    "name": "Ada",
+}
 
 
 @pytest.fixture(autouse=True)
@@ -38,7 +43,6 @@ def no_real_geocoding(monkeypatch):
     """A test that reaches Google fails. Tests that need lookups swap in a fake _fetch."""
 
     def refuse(query):
-        # pytest.fail, not assert: geocode() swallows ordinary exceptions, but not this one.
         pytest.fail(f"Test tried to call the real Geocoding API for {query!r}")
 
     monkeypatch.setattr(geocoding, "_fetch", refuse)
@@ -75,8 +79,26 @@ def fresh_login_limiter():
 
 @pytest.fixture()
 def client(tmp_path):
-    engine = create_engine(f"sqlite:///{tmp_path / 'test.db'}", connect_args={"check_same_thread": False})
-    TestingSession = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
+    engine = create_engine(
+        f"sqlite:///{tmp_path / 'test.db'}",
+        connect_args={"check_same_thread": False},
+    )
+
+    # Enable SQLite foreign key enforcement for test connections.
+    @event.listens_for(engine, "connect")
+    def enable_foreign_keys(dbapi_connection, connection_record):
+        cursor = dbapi_connection.cursor()
+        try:
+            cursor.execute("PRAGMA foreign_keys=ON")
+        finally:
+            cursor.close()
+
+    TestingSession = sessionmaker(
+        bind=engine,
+        autoflush=False,
+        expire_on_commit=False,
+    )
+
     Base.metadata.create_all(bind=engine)
 
     def override_get_db():
@@ -87,11 +109,16 @@ def client(tmp_path):
             db.close()
 
     app.dependency_overrides[get_db] = override_get_db
+
     with TestClient(app) as c:
         yield c
+
     app.dependency_overrides.clear()
     engine.dispose()
 
 
 def register(client, **overrides):
-    return client.post("/api/auth/register", json={**VALID_USER, **overrides})
+    return client.post(
+        "/api/auth/register",
+        json={**VALID_USER, **overrides},
+    )

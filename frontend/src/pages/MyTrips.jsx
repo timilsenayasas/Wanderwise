@@ -1,12 +1,13 @@
+
 /* S5 My Trips (F12): the user's saved trips, newest first. */
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api/client';
 import Button from '../components/Button';
 import Card from '../components/Card';
 import EmptyState from '../components/EmptyState';
 import Icon from '../components/Icon';
-import Spinner from '../components/Spinner';
+import Skeleton from '../components/Skeleton';
 import { useToast } from '../components/Toast';
 import { formatBudget, formatDateRange, tripLength } from '../lib/format';
 import './MyTrips.css';
@@ -15,7 +16,13 @@ import './MyTrips.css';
  * One saved trip. The whole card opens the trip; Open/Delete sit above that link.
  * `maxTags` trims long interest lists (Home shows 3 plus "+N more").
  */
-export function TripCard({ trip, onDelete, deleting, maxTags }) {
+export function TripCard({
+  trip,
+  onDelete,
+  deleting,
+  deleteDisabled = false,
+  maxTags,
+}) {
   const [confirming, setConfirming] = useState(false);
   const days = tripLength(trip.start_date, trip.end_date);
   const tags = maxTags ? trip.interests.slice(0, maxTags) : trip.interests;
@@ -24,49 +31,81 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
   return (
     <Card as="article" padding="md" interactive className="trip-card">
       <p className="trip-card__from">From {trip.origin}</p>
+
       <h3 className="trip-card__title">
         <Link to={`/trips/${trip.id}`} className="trip-card__link">
           {trip.destination}
         </Link>
       </h3>
+
       <ul className="trip-card__facts">
         <li>
           <Icon name="calendar" size={18} />
           <span className="visually-hidden">Dates: </span>
-          {formatDateRange(trip.start_date, trip.end_date)} · {days} {days === 1 ? 'day' : 'days'}
+          {formatDateRange(trip.start_date, trip.end_date)} · {days}{' '}
+          {days === 1 ? 'day' : 'days'}
         </li>
+
         <li>
           <Icon name="wallet" size={18} />
           <span className="visually-hidden">Budget: </span>
-          {formatBudget(trip.budget)} · {trip.travelers} {trip.travelers === 1 ? 'traveler' : 'travelers'}
+          {formatBudget(trip.budget)} · {trip.travelers}{' '}
+          {trip.travelers === 1 ? 'traveler' : 'travelers'}
         </li>
       </ul>
+
       {tags.length > 0 && (
         <ul className="trip-card__tags" aria-label="Interests">
           {tags.map((interest) => (
             <li key={interest}>{interest}</li>
           ))}
-          {hiddenTags > 0 && <li className="trip-card__more">+{hiddenTags} more</li>}
+          {hiddenTags > 0 && (
+            <li className="trip-card__more">+{hiddenTags} more</li>
+          )}
         </ul>
       )}
+
       {onDelete && (
         <div className="trip-card__actions">
           {confirming ? (
             <>
-              <span className="trip-card__confirm">Delete this trip?</span>
-              <Button size="sm" variant="ghost" onClick={() => setConfirming(false)} disabled={deleting}>
+              <span className="trip-card__confirm">
+                Delete this trip?
+              </span>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirming(false)}
+                disabled={deleting}
+              >
                 Cancel
               </Button>
-              <Button size="sm" variant="accent" onClick={() => onDelete(trip)} loading={deleting} loadingText="Deleting…">
+              <Button
+                size="sm"
+                variant="accent"
+                onClick={() => onDelete(trip)}
+                disabled={deleteDisabled}
+                loading={deleting}
+                loadingText="Deleting…"
+              >
                 Delete
               </Button>
             </>
           ) : (
             <>
-              <Button size="sm" variant="secondary" to={`/trips/${trip.id}`}>
+              <Button
+                size="sm"
+                variant="secondary"
+                to={`/trips/${trip.id}`}
+              >
                 Open
               </Button>
-              <Button size="sm" variant="ghost" onClick={() => setConfirming(true)}>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => setConfirming(true)}
+                disabled={deleteDisabled}
+              >
                 Delete
               </Button>
             </>
@@ -77,21 +116,67 @@ export function TripCard({ trip, onDelete, deleting, maxTags }) {
   );
 }
 
+/**
+ * B2: Skeleton placeholder for a saved trip card.
+ * Displays while trip data is being fetched.
+ */
+function TripCardSkeleton() {
+  return (
+    <Card
+      as="article"
+      padding="md"
+      className="trip-card"
+      aria-hidden="true"
+    >
+      <Skeleton width="45%" height="14px" />
+      <Skeleton width="70%" height="26px" />
+      <Skeleton width="85%" height="16px" />
+      <Skeleton width="65%" height="16px" />
+      <Skeleton width="55%" height="24px" rounded />
+      <Skeleton width="40%" height="34px" rounded />
+    </Card>
+  );
+}
+
 export default function MyTrips() {
   const toast = useToast();
+
   const [trips, setTrips] = useState([]);
-  const [status, setStatus] = useState('loading'); // loading | ready | error
+  const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
+  const [retrying, setRetrying] = useState(false);
 
-  async function loadTrips() {
-    setStatus('loading');
+  // Prevent overlapping retry requests.
+  const retryInProgress = useRef(false);
+
+  // Prevent overlapping delete requests.
+  const deletionInProgress = useRef(false);
+
+  async function loadTrips(isRetry = false) {
+    if (isRetry) {
+      if (retryInProgress.current) return;
+
+      retryInProgress.current = true;
+      setRetrying(true);
+    } else {
+      setStatus('loading');
+      setError('');
+    }
+
     try {
-      setTrips(await api.get('/trips'));
+      const savedTrips = await api.get('/trips');
+      setTrips(savedTrips);
+      setError('');
       setStatus('ready');
     } catch (err) {
       setError(err.message || 'Could not load your trips.');
       setStatus('error');
+    } finally {
+      if (isRetry) {
+        retryInProgress.current = false;
+        setRetrying(false);
+      }
     }
   }
 
@@ -100,14 +185,26 @@ export default function MyTrips() {
   }, []);
 
   async function handleDelete(trip) {
+    // Block another deletion while one is in progress.
+    if (deletionInProgress.current) {
+      return;
+    }
+
+    deletionInProgress.current = true;
     setDeletingId(trip.id);
+
     try {
       await api.delete(`/trips/${trip.id}`);
-      setTrips((current) => current.filter((t) => t.id !== trip.id));
+
+      setTrips((current) =>
+        current.filter((t) => t.id !== trip.id)
+      );
+
       toast.success(`Deleted your trip to ${trip.destination}.`);
     } catch (err) {
       toast.error(err.message || 'Could not delete the trip.');
     } finally {
+      deletionInProgress.current = false;
       setDeletingId(null);
     }
   }
@@ -120,6 +217,7 @@ export default function MyTrips() {
           <h1>My trips</h1>
           <p>All your saved trips in one place.</p>
         </div>
+
         {status === 'ready' && trips.length > 0 && (
           <Button to="/trips/new" variant="accent">
             Plan a new trip
@@ -127,23 +225,43 @@ export default function MyTrips() {
         )}
       </header>
 
+      {/* B2: Skeleton loading cards */}
       {status === 'loading' && (
-        <div className="page-loading">
-          <Spinner size="lg" label="Loading your trips" />
+        <div role="status" aria-label="Loading your trips">
+          <span className="visually-hidden">
+            Loading your trips...
+          </span>
+
+          <ul className="my-trips__grid">
+            {[1, 2, 3].map((item) => (
+              <li key={item}>
+                <TripCardSkeleton />
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
+      {/* Error state */}
       {status === 'error' && (
         <Card padding="lg">
           <p className="my-trips__alert" role="alert">
             {error}
           </p>
-          <Button variant="secondary" onClick={loadTrips}>
+
+          <Button
+            variant="secondary"
+            onClick={() => loadTrips(true)}
+            disabled={retrying}
+            loading={retrying}
+            loadingText="Retrying…"
+          >
             Try again
           </Button>
         </Card>
       )}
 
+      {/* Empty state */}
       {status === 'ready' && trips.length === 0 && (
         <Card padding="lg">
           <EmptyState
@@ -158,11 +276,17 @@ export default function MyTrips() {
         </Card>
       )}
 
+      {/* Saved trips */}
       {status === 'ready' && trips.length > 0 && (
         <ul className="my-trips__grid">
           {trips.map((trip) => (
             <li key={trip.id}>
-              <TripCard trip={trip} onDelete={handleDelete} deleting={deletingId === trip.id} />
+              <TripCard
+                trip={trip}
+                onDelete={handleDelete}
+                deleting={deletingId === trip.id}
+                deleteDisabled={deletingId !== null}
+              />
             </li>
           ))}
         </ul>

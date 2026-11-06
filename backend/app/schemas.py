@@ -125,6 +125,9 @@ class ItineraryActivity(BaseModel):
     estimated_cost: float = Field(ge=0)
     travel_time_to_next_minutes: int = Field(ge=0)
 
+    latitude: float | None = Field(default=None, ge=-90, le=90)
+    longitude: float | None = Field(default=None, ge=-180, le=180)
+
     check_start_time = field_validator("start_time")(_clock_time)
 
 
@@ -150,6 +153,20 @@ class ItineraryResponse(BaseModel):
     currency: str
     total_estimated_cost: float = Field(ge=0)
     days: list[ItineraryDay]
+
+
+class RefinePlanIn(BaseModel):
+    """A traveler's message requesting changes to a saved itinerary."""
+
+    message: str = Field(min_length=1, max_length=2000)
+
+    @field_validator("message")
+    @classmethod
+    def message_not_blank(cls, value: str) -> str:
+        value = value.strip()
+        if not value:
+            raise ValueError("Enter a message describing the change.")
+        return value
 
 
 # --- Saved plan (A1) ------------------------------------------------------
