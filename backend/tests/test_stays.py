@@ -297,8 +297,26 @@ def test_one_pin_per_stay_with_a_picked_hotel(client, monkeypatch):
     put_choice(client, trip_id, stay=2, choice="hotel", place_id="p2")
 
     assert get_pins(client, trip_id) == [
-        {"stay_number": 1, "city": KATHMANDU, "part": None, "parts": None, "latitude": 27.7, "longitude": 85.3},
-        {"stay_number": 2, "city": CHITWAN, "part": None, "parts": None, "latitude": 27.7, "longitude": 86.3},
+        {
+            "stay_number": 1,
+            "city": KATHMANDU,
+            "part": None,
+            "parts": None,
+            "latitude": 27.7,
+            "longitude": 85.3,
+            "check_in": "2026-10-10",
+            "check_out": "2026-10-12",
+        },
+        {
+            "stay_number": 2,
+            "city": CHITWAN,
+            "part": None,
+            "parts": None,
+            "latitude": 27.7,
+            "longitude": 86.3,
+            "check_in": "2026-10-12",
+            "check_out": "2026-10-14",
+        },
     ]
 
 

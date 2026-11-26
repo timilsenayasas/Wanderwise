@@ -2,23 +2,29 @@
   display: flex;
   gap: var(--space-2);
   border-bottom: 1.5px solid var(--color-border);
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .tabs__tab {
+  flex-shrink: 0;
   min-height: 44px;
   padding: var(--space-2) var(--space-4);
-  margin-bottom: -1.5px; /* sit the selected underline on the tablist border */
+  margin-bottom: -1.5px;
   border: 0;
   border-bottom: 3px solid transparent;
   border-radius: var(--radius-sm) var(--radius-sm) 0 0;
   background: transparent;
   color: var(--color-text-muted);
   font-weight: 600;
+  white-space: nowrap;
   cursor: pointer;
-  transition: color var(--duration-fast) ease, border-color var(--duration-fast) ease;
+  transition: color var(--duration-fast) ease,
+    border-color var(--duration-fast) ease;
 }
 
-/* Four trip tabs fit side by side on a 375px phone. */
+/* Allow horizontal scrolling when tabs exceed the viewport. */
 @media (max-width: 400px) {
   .tabs__tab {
     padding-inline: var(--space-3);
@@ -29,10 +35,14 @@
   color: var(--color-primary);
 }
 
-/* The underline marks the selected tab, not just its color. */
 .tabs__tab[aria-selected='true'] {
   color: var(--color-primary);
   border-bottom-color: var(--color-primary);
+}
+
+.tabs__panel {
+  min-width: 0;
+  max-width: 100%;
 }
 
 .tabs__panel[hidden] {

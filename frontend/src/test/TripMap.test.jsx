@@ -108,7 +108,14 @@ describe('Trip map', () => {
     render(<TripMap plan={PLAN} />);
 
     expect(map.fitBounds).toHaveBeenCalledTimes(1);
-    const [bounds] = map.fitBounds.mock.calls[0];
+    const [bounds, padding] = map.fitBounds.mock.calls[0];
+
+    expect(padding).toEqual({
+      top: 80,
+      right: 48,
+      bottom: 70,
+      left: 48,
+    });
     expect(bounds.points).toEqual([
       { lat: 41.8796, lng: -87.6237 },
       { lat: 41.8917, lng: -87.6086 },
@@ -365,4 +372,141 @@ describe('Hotels of a split stay', () => {
       stopList().getByRole('button', { name: "Your hotel · Kathmandu (part 2), where you're staying in Kathmandu, Nepal (part 2)" }),
     ).toBeInTheDocument();
   });
+});
+
+describe('Map day filtering', () => {
+  it('defaults to All days and displays every stop', () => {
+    render(<TripMap plan={PLAN} />);
+
+    expect(screen.getByRole('combobox', {
+      name: 'Show day',
+    })).toHaveValue('all');
+
+    expect(screen.getAllByTestId('map-marker')).toHaveLength(3);
+  });
+
+  it('filters stops by the selected day', async () => {
+    render(<TripMap plan={PLAN} />);
+
+    const picker = screen.getByRole('combobox', {
+      name: 'Show day',
+    });
+
+    await userEvent.selectOptions(picker, '2');
+
+    expect(screen.getAllByTestId('map-marker')).toHaveLength(2);
+    expect(screen.queryByRole('button', {
+      name: 'Marker 1. Art Institute',
+    })).not.toBeInTheDocument();
+
+    await userEvent.selectOptions(picker, '1');
+
+    expect(screen.getAllByTestId('map-marker')).toHaveLength(1);
+
+    await userEvent.selectOptions(picker, 'all');
+
+    expect(screen.getAllByTestId('map-marker')).toHaveLength(3);
+  });
+
+  it('draws the selected day route in visit order', async () => {
+    fakeMap();
+    render(<TripMap plan={PLAN} />);
+
+    expect(window.google.maps.Polyline).not.toHaveBeenCalled();
+
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Show day' }),
+      '2'
+    );
+
+    expect(window.google.maps.Polyline).toHaveBeenCalledWith(
+      expect.objectContaining({
+        path: [
+          { lat: 41.8917, lng: -87.6086 },
+          { lat: 41.8902, lng: -87.6262 },
+        ],
+      })
+    );
+  });
+
+  it('removes the route when returning to All days', async () => {
+    fakeMap();
+    render(<TripMap plan={PLAN} />);
+
+    const picker = screen.getByRole('combobox', {
+      name: 'Show day',
+    });
+
+    await userEvent.selectOptions(picker, '2');
+
+    const route = window.google.maps.Polyline.mock.instances[0];
+
+    await userEvent.selectOptions(picker, 'all');
+
+    expect(route.setMap).toHaveBeenCalledWith(null);
+  });
+
+  it('does not draw a route for a single stop', async () => {
+    fakeMap();
+    render(<TripMap plan={PLAN} />);
+
+    await userEvent.selectOptions(
+      screen.getByRole('combobox', { name: 'Show day' }),
+      '1'
+    );
+
+    expect(window.google.maps.Polyline).not.toHaveBeenCalled();
+  });
+});
+
+it('filters hotel pins using stay dates', async () => {
+  api.get.mockResolvedValue([
+    {
+      stay_number: 1,
+      city: 'Chicago, IL',
+      part: null,
+      latitude: 41.9,
+      longitude: -87.62,
+      check_in: '2026-11-04',
+      check_out: '2026-11-05',
+    },
+    {
+      stay_number: 2,
+      city: 'Evanston, IL',
+      part: null,
+      latitude: 42.04,
+      longitude: -87.68,
+      check_in: '2026-11-06',
+      check_out: '2026-11-07',
+    },
+  ]);
+
+  render(<TripMap plan={PLAN} tripId={7} />);
+
+  const chicago = await screen.findByRole('button', {
+    name: 'Marker Your hotel · Chicago',
+  });
+
+  const evanston = await screen.findByRole('button', {
+    name: 'Marker Your hotel · Evanston',
+  });
+
+  const picker = screen.getByRole('combobox', {
+    name: 'Show day',
+  });
+
+  await userEvent.selectOptions(picker, '1');
+
+  expect(chicago).toBeInTheDocument();
+  expect(evanston).not.toBeInTheDocument();
+
+  await userEvent.selectOptions(picker, '2');
+
+  expect(screen.queryByRole('button', {
+    name: 'Marker Your hotel · Chicago',
+  })).not.toBeInTheDocument();
+
+  expect(screen.getByRole('button', {
+    name: 'Marker Your hotel · Evanston',
+  })).toBeInTheDocument();
 });

@@ -44,6 +44,8 @@ function hotelPins(pins) {
     kind: 'hotel',
     city: pin.city,
     part: pin.part,
+    checkIn: pin.check_in,
+    checkOut:pin.check_out,
     name: pins.length > 1 ? `${HOTEL_LABEL} · ${pin.city.split(',')[0]}${partText(pin)}` : HOTEL_LABEL,
     position: { lat: pin.latitude, lng: pin.longitude },
   }));
@@ -99,19 +101,51 @@ function stopWhen(stop) {
 export default function TripMap({ plan, tripId, onShowItinerary }) {
   const apiKey = import.meta.env.VITE_GOOGLE_MAPS_KEY;
   const mapId = import.meta.env.VITE_GOOGLE_MAPS_MAP_ID || 'DEMO_MAP_ID';
-  const stops = useMemo(() => (plan ? mapStops(plan) : []), [plan]);
-  const hotels = useHotelPins(tripId);
-  // Everything the map fits in view: the stops plus the hotels.
-  const places = useMemo(() => [...stops, ...(hotels ?? [])], [stops, hotels]);
+  const allStops = useMemo(() => (plan ? mapStops(plan) : []), [plan]);
+  const allHotels = useHotelPins(tripId);
+  const [selectedDay, setSelectedDay] = useState('all');
   const [selectedId, setSelectedId] = useState(null);
+
+  const activeDay = plan?.days.find(
+    (day) => String(day.day_number) === selectedDay
+  );
+
+  const stops = useMemo(
+    () => activeDay
+      ? allStops.filter((stop) => stop.dayNumber === activeDay.day_number)
+      : allStops,
+    [allStops, activeDay]
+  );
+
+  const hotels = useMemo(() => {
+    if (allHotels === undefined) return undefined;
+    if (!activeDay) return allHotels;
+
+    return allHotels.filter(
+      (hotel) =>
+        hotel.checkIn <= activeDay.date &&
+        activeDay.date <= hotel.checkOut
+    );
+  }, [allHotels, activeDay]);
+
+  const places = useMemo(
+    () => [...stops, ...(hotels ?? [])],
+    [stops, hotels]
+  );
+
   const selected = places.find((place) => place.id === selectedId) ?? null;
+
+  function changeDay(event) {
+    setSelectedDay(event.target.value);
+    setSelectedId(null);
+  }
 
   // No stops: wait for the hotel pins before saying there's nothing to show.
   if (stops.length === 0 && hotels === undefined) {
     return <Spinner size="lg" label="Loading the map" />;
   }
 
-  if (places.length === 0) {
+  if (allStops.length === 0 && (allHotels ?? []).length === 0) {
     return (
       <section className="trip-map" aria-labelledby="map-title">
         <h2 id="map-title">Map</h2>
@@ -134,8 +168,29 @@ export default function TripMap({ plan, tripId, onShowItinerary }) {
   return (
     <section className="trip-map" aria-labelledby="map-title">
       <h2 id="map-title">Map</h2>
+      {plan?.days.length > 0 && (
+        <div className="trip-map__day-filter">
+          <label htmlFor="map-day">Show day</label>
+          <select
+            id="map-day"
+            value={activeDay ? selectedDay : 'all'}
+            onChange={changeDay}
+          >
+            <option value="all">All days</option>
+            {plan.days.map((day) => (
+              <option key={day.day_number} value={day.day_number}>
+                Day {day.day_number}
+              </option>
+            ))}
+          </select>
+        </div>
+      )}
       {/* No key: say so instead of loading a map that can only show an error. */}
-      {apiKey ? (
+      {places.length === 0 ? (
+        <p className="text-muted" role="status">
+          No mapped locations for this day.
+        </p>
+      ) : apiKey ? (
         <APIProvider apiKey={apiKey}>
           <MapOrFallback
             stops={stops}
@@ -144,13 +199,20 @@ export default function TripMap({ plan, tripId, onShowItinerary }) {
             selected={selected}
             onSelect={setSelectedId}
             mapId={mapId}
+            showRoute={Boolean(activeDay)}
           />
         </APIProvider>
       ) : (
         <MapUnavailable reason="VITE_GOOGLE_MAPS_KEY isn't set in frontend/.env." />
       )}
+      {activeDay && stops.length > 1 && (
+        <p className="text-muted">
+          The route line connects stops in visit order.
+          It does not represent road directions.
+        </p>
+      )}
       <StopList stops={stops} hotels={hotels ?? []} selectedId={selectedId} onSelect={setSelectedId} />
-      {stops.length === 0 && (
+      {allStops.length === 0 && (
         <div className="trip-map__no-stops">
           <p className="text-muted">Generate a plan on the Itinerary tab to add its stops to the map.</p>
           <Button variant="secondary" size="sm" onClick={onShowItinerary}>
@@ -188,7 +250,7 @@ export function MapUnavailable({ reason }) {
   );
 }
 
-function MapView({ stops, hotels, places, selected, onSelect, mapId }) {
+function MapView({ stops, hotels, places, selected, onSelect, mapId, showRoute }) {
   return (
     <div className="trip-map__map">
       <Map
@@ -202,6 +264,7 @@ function MapView({ stops, hotels, places, selected, onSelect, mapId }) {
       >
         <FitToStops stops={places} />
         <PanToSelected stop={selected} />
+        {showRoute && <DayRoute stops={stops} />}
         {hotels.map((hotel) => (
           <AdvancedMarker
             key={hotel.id}
@@ -258,6 +321,29 @@ function whereText(hotel, hotels) {
 
 const capitalize = (text) => text.charAt(0).toUpperCase() + text.slice(1);
 
+/** Connect the selected day's activities in visit order. */
+function DayRoute({ stops }) {
+  const map = useMap();
+
+  useEffect(() => {
+    if (!map || stops.length < 2) return;
+
+    const route = new window.google.maps.Polyline({
+      map,
+      path: stops.map((stop) => stop.position),
+      geodesic: true,
+      strokeColor: '#0D9488',
+      strokeOpacity: 0.9,
+      strokeWeight: 4,
+      clickable: false,
+    });
+
+    return () => route.setMap(null);
+  }, [map, stops]);
+
+  return null;
+}
+
 /** Zoom the map to show every stop and hotel (just one: centered, street level). */
 function FitToStops({ stops }) {
   const map = useMap();
@@ -270,7 +356,12 @@ function FitToStops({ stops }) {
     }
     const bounds = new window.google.maps.LatLngBounds();
     stops.forEach((stop) => bounds.extend(stop.position));
-    map.fitBounds(bounds, 48);
+    map.fitBounds(bounds, {
+      top: 80,
+      right: 48,
+      bottom: 70,
+      left: 48,
+    });
   }, [map, stops]);
   return null;
 }
