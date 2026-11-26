@@ -21,6 +21,7 @@ import { formatBudget, formatDateRange, tripLength } from '../lib/format';
 import './MyTrips.css'; // interest tags
 import './Itinerary.css';
 import WeatherTab from '../components/WeatherTab';
+import GettingThere from '../components/GettingThere';
 
 // The map and hotel code is only downloaded when someone opens its tab.
 const TripMap = lazy(() => import('../components/TripMap'));
@@ -396,6 +397,7 @@ export default function Itinerary() {
           id="itinerary"
           selected={tab}
         >
+          <GettingThere key={trip.id} trip={trip} />
           {!plan && (
             <Card
               as="section"
