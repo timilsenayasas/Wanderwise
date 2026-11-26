@@ -256,6 +256,26 @@ describe('Trip page plan', () => {
     expect(screen.queryByRole('button', { name: /generate ai itinerary/i })).not.toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
   });
+
+    it('prints the itinerary when the Print / Save as PDF button is clicked', async () => {
+    const user = userEvent.setup();
+    const printSpy = vi.spyOn(window, 'print').mockImplementation(() => {});
+
+    mockLoad(savedPlan('Art Institute of Chicago'));
+    renderTrip();
+
+    await screen.findByText('Art Institute of Chicago');
+
+    await user.click(
+      screen.getByRole('button', { name: 'Print / Save as PDF' })
+    );
+
+    expect(printSpy).toHaveBeenCalledOnce();
+
+    printSpy.mockRestore();
+  });
+
+
 });
 
 describe('Trip page tabs', () => {
