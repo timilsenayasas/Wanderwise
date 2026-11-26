@@ -90,3 +90,38 @@
   color: var(--color-error);
   font-weight: 500;
 }
+
+/* A22: Getting there */
+.getting-there {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  min-width: 0;
+  margin-bottom: 1rem;
+  overflow-wrap: anywhere;
+}
+
+.getting-there__results {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+  width: 100%;
+}
+
+.getting-there__option {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  min-width: 0;
+}
+
+.getting-there__results > .text-muted {
+  grid-column: 1 / -1;
+}
+
+@media (max-width: 600px) {
+  .getting-there__results {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}

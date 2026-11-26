@@ -61,15 +61,27 @@ export default function TransportOptions({ tripId, origin, destination }) {
         <div className="transport-options__results">
           {options.map((option) => (
             <div key={option.mode}>
-              <strong>{option.mode === 'DRIVE' ? 'Driving' : 'Walking'}</strong>
+              <strong>
+                {{
+                  DRIVE: 'Driving',
+                  WALK: 'Walking',
+                  TRANSIT: 'Public transit (bus/train)',
+                }[option.mode] || option.mode}
+              </strong>
 
               {option.available === false ? (
-                <p>Estimate unavailable.</p>
+                <p>{option.message || 'Estimate unavailable.'}</p>
               ) : (
                 <p>
                   About {option.duration_minutes} minutes ·{' '}
                   {option.distance_km} km ·{' '}
-                  ${option.estimated_cost_usd.toFixed(2)} estimated
+                  {option.mode === 'TRANSIT'
+                    ? option.transit_fare != null
+                      ? `${option.transit_currency} ${option.transit_fare.toFixed(2)} estimated`
+                      : 'Fare unavailable'
+                    : option.estimated_cost_usd != null
+                      ? `$${option.estimated_cost_usd.toFixed(2)} estimated`
+                      : 'Cost unavailable'}
                 </p>
               )}
 
