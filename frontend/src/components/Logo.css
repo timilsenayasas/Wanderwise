@@ -8,10 +8,10 @@
   font-family: var(--font-display);
   font-size: var(--text-xl);
   font-weight: 700;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   letter-spacing: -0.02em;
 }
 
 .logo__accent {
-  color: var(--color-accent-strong);
+  color: var(--color-link);
 }

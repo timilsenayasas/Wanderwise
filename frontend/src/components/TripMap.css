@@ -7,7 +7,7 @@
   margin: 0;
 }
 
-/* About half a phone screen, so the stop list and the page stay reachable (also in landscape). */
+
 .trip-map__map {
   height: clamp(260px, 55vh, 520px);
   overflow: hidden;
@@ -16,7 +16,7 @@
   background: var(--color-bg-deep); /* shown while the tiles load */
 }
 
-/* ---- Markers ---- */
+
 .trip-map__pin {
   display: inline-grid;
   place-items: center;
@@ -47,21 +47,17 @@
   border: 2.5px solid var(--color-primary);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   box-shadow: var(--shadow-md);
 }
 
 .trip-map__hotel-pin--selected {
   border-color: var(--color-accent-strong);
-  color: var(--color-accent-strong);
+  color: var(--color-primary-text);
   transform: scale(1.15);
 }
 
-/*
- * ---- Info window ----
- * Google draws the box and picks its text color, so no color tokens here: dark tokens (B1)
- * would put light text on Google's white box.
- */
+
 .trip-map__info-title {
   font-size: var(--text-base);
   overflow-wrap: anywhere;
@@ -78,7 +74,6 @@
   opacity: 0.8;
 }
 
-/* ---- Stop list ---- */
 .trip-map__stops {
   display: grid;
   gap: var(--space-2);
@@ -128,7 +123,7 @@
   background: var(--color-accent-strong);
 }
 
-/* Same shape as the hotel's map pin. */
+
 .trip-map__stop-hotel {
   display: inline-grid;
   flex-shrink: 0;
@@ -138,12 +133,12 @@
   border: 2px solid var(--color-primary);
   border-radius: var(--radius-sm);
   background: var(--color-surface);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .trip-map__stop[aria-pressed='true'] .trip-map__stop-hotel {
   border-color: var(--color-accent-strong);
-  color: var(--color-accent-strong);
+  color: var(--color-primary-text);
 }
 
 /* A hotel but no plan yet: the map shows the hotel and says how to add stops. */

@@ -1,21 +1,14 @@
-/*
- * WanderWise design tokens — "golden hour travel".
- *
- * Use these variables instead of hard-coded values so the whole app stays
- * consistent. Contrast notes are for WCAG 2.1 AA (4.5:1 for normal text).
- *
- *   color: var(--color-text);
- *   padding: var(--space-4);
- *   border-radius: var(--radius-md);
- */
 
 :root {
   color-scheme: light;
 
   /* ---- Brand colors ---- */
-  --color-primary: #1f3864;        /* deep navy (design doc). White on it: 11.9:1 */
+  --color-primary: #1f3864;
   --color-primary-hover: #172b4f;
-  --color-primary-soft: #e6ebf4;   /* tinted surfaces, selected states */
+  --color-primary-text: #1f3864;
+  --color-link: #b9461f;
+  --color-link-hover: #9c3a19;
+
 
   --color-accent: #e8683f;         /* sunset coral — decorative only (icons, lines, blobs) */
   --color-accent-strong: #b9461f;  /* coral safe for text & white-on-coral buttons: 5.3:1 */
@@ -102,7 +95,9 @@
   /* Brand colors */
   --color-primary: #1f3864;
   --color-primary-hover: #172b4f;
-  --color-primary-soft: #34445f;
+  --color-primary-text: #a9c7ff;
+  --color-link: #ffad91;
+  --color-link-hover: #ffc1ad;
 
   --color-accent: #e8683f;
   --color-accent-strong: #b9461f;

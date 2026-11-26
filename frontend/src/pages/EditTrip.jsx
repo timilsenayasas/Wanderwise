@@ -50,7 +50,7 @@ export default function EditTrip() {
             : '',
         });
       } catch (error) {
-        toast.error(error.message || 'Unable to load this trip.');
+        setOriginalTrip(null);
       } finally {
         setLoading(false);
       }
@@ -149,7 +149,7 @@ export default function EditTrip() {
   if (!originalTrip) {
     return (
       <main className="page container">
-        <p role="alert">Unable to load this trip.</p>
+        <p role="alert">Trip not found or you don't have permission to edit it.</p>
 
         <Button onClick={() => navigate('/trips')}>
           Back to My Trips

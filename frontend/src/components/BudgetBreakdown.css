@@ -91,5 +91,5 @@
   border-top: 2px solid var(--color-border-strong);
   border-bottom: 0;
   font-weight: 700;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
