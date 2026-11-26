@@ -233,6 +233,28 @@ Each stay gets its own hotel suggestions from Places API (New) Text Search ("hot
   Reopening a section doesn't search again; only Refresh does. Set a requests-per-day quota on Places API (New) as in step 5.
 - **Google's rules:** only place IDs are stored, plus coordinates for at most 30 days (a pin's are refreshed when it's shown; any older than that are cleared at startup and on every pin request). Names, ratings, addresses and photos are fetched fresh and never saved. The list shows "Google Maps" attribution, and every photo credits its author and links to the place on Google Maps.
 
+### Gemini Model Fallback (F6)
+
+WanderWise automatically attempts backup Gemini models when
+the primary model returns an HTTP 503 error.
+
+Models are attempted in the following order:
+
+1. gemini-3.5-flash-lite
+2. gemini-3.5-flash
+3. gemini-3.1-flash-lite
+4. gemini-2.5-flash
+
+The fallback mechanism is shared by itinerary generation,
+itinerary refinement, and hotel price estimation.
+
+Other API errors do not trigger model fallback. If all models
+are busy, itinerary services return a retryable error message.
+Hotel suggestions remain available without estimated prices.
+
+Automated tests simulate model failures without making live
+Gemini API requests.
+
 ### Troubleshooting
 
 | Symptom | Fix |
