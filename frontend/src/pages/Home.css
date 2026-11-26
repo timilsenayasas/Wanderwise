@@ -9,7 +9,7 @@
 }
 
 .home__name {
-  color: var(--color-accent-strong);
+  color: var(--color-link);
   font-style: italic;
 }
 
@@ -154,7 +154,7 @@
   height: 44px;
   border-radius: var(--radius-md);
   background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 .action-card__title,
@@ -171,7 +171,7 @@
 }
 
 .action-card__arrow {
-  color: var(--color-accent-strong);
+  color: var(--color-link);
   transition: transform var(--duration-fast) var(--ease-out);
 }
 

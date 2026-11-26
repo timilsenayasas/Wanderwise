@@ -3,7 +3,7 @@
   display: grid;
   gap: var(--space-4);
   border-width: 2px;
-  border-color: var(--color-primary);
+  border-color: var(--color-primary-text);
   box-shadow: var(--shadow-md);
   animation: fade-up var(--duration-slow) var(--ease-out) backwards;
 }
@@ -110,7 +110,7 @@
 
 .stay-choice__note .icon {
   flex-shrink: 0;
-  color: var(--color-accent-strong);
+  color: var(--color-link);
 }
 
 .stay-choice__actions {
@@ -153,5 +153,5 @@
   height: 2.5rem;
   border-radius: var(--radius-pill);
   background: var(--color-primary-soft);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }

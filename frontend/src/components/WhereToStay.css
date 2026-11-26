@@ -233,7 +233,7 @@
 /* Points right when closed, down when open. */
 .stay-section__chevron {
   flex-shrink: 0;
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   transition: transform var(--duration-base) var(--ease-out);
 }
 

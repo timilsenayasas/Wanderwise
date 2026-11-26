@@ -21,7 +21,7 @@
   font-size: var(--text-3xl);
   font-weight: 600;
   line-height: var(--leading-tight);
-  color: var(--color-primary);
+  color: var(--color-primary-text);
   font-variant-numeric: tabular-nums;
 }
 

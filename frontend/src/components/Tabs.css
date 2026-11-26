@@ -26,13 +26,13 @@
 }
 
 .tabs__tab:hover {
-  color: var(--color-primary);
+  color: var(--color-primary-text);
 }
 
 /* The underline marks the selected tab, not just its color. */
 .tabs__tab[aria-selected='true'] {
-  color: var(--color-primary);
-  border-bottom-color: var(--color-primary);
+  color: var(--color-primary-text);
+  border-bottom-color: var(--color-primary-text);
 }
 
 .tabs__panel[hidden] {

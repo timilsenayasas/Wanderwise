@@ -168,4 +168,24 @@ describe('Edit Trip page', () => {
       await screen.findByRole('alert'),
     ).toHaveTextContent('Unable to update trip. Please try again.');
   });
+    // TEST 5: Show the trip-not-found message only once
+  it('displays the trip not found message only once when access is denied', async () => {
+    api.get.mockRejectedValue(
+      new Error('Trip not found'),
+    );
+
+    renderEditTrip();
+
+    expect(
+      await screen.findByRole('alert'),
+    ).toHaveTextContent(
+      "Trip not found or you don't have permission to edit it.",
+    );
+
+    expect(
+      screen.getAllByText(
+        "Trip not found or you don't have permission to edit it.",
+      ),
+    ).toHaveLength(1);
+  });
 });

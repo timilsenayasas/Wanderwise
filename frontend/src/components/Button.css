@@ -57,20 +57,22 @@
 }
 
 .btn--secondary {
-  background: transparent;
-  color: var(--color-primary);
-  border-color: var(--color-primary);
+background: transparent;
+color: var(--color-primary-text);
+border-color: var(--color-primary-text);
 }
+
 .btn--secondary:hover:not(:disabled) {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+background: var(--color-primary-soft);
+color: var(--color-primary-text);
 }
 
 .btn--ghost {
-  background: transparent;
-  color: var(--color-primary);
+background: transparent;
+color: var(--color-primary-text);
 }
+
 .btn--ghost:hover:not(:disabled) {
-  background: var(--color-primary-soft);
-  color: var(--color-primary);
+background: var(--color-primary-soft);
+color: var(--color-primary-text);
 }
