@@ -81,8 +81,8 @@ def estimate_nightly_prices(
         return {}
     try:
         client = llm.get_gemini_client()
-        response = client.models.generate_content(
-            model=llm.GEMINI_MODEL,
+        response = llm.generate_content_with_fallback(
+            client,
             contents=build_prices_prompt(destination, start_date, end_date, travelers, hotels),
             config={"response_mime_type": "application/json"},
         )

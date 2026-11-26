@@ -60,8 +60,8 @@ def refine_itinerary(
     client = llm.get_gemini_client()
 
     try:
-        response = client.models.generate_content(
-            model=llm.GEMINI_MODEL,
+        response = llm.generate_content_with_fallback(
+            client,
             contents=prompt,
             config={"response_mime_type": "application/json"},
         )

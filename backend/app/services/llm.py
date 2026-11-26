@@ -12,7 +12,12 @@ from pydantic import ValidationError
 from app.config import logger, settings
 from app.schemas import ItineraryResponse, TripPlanRequest
 
-GEMINI_MODEL = "gemini-3.5-flash-lite"
+GEMINI_MODELS = (
+    "gemini-3.5-flash-lite",
+    "gemini-3.5-flash",
+    "gemini-3.1-flash-lite",
+    "gemini-2.5-flash",
+)
 
 # In-memory cache of generated itineraries, keyed by the exact request.
 # Bounded so a long-running server can't grow it forever; cleared on restart.
@@ -38,6 +43,39 @@ def get_gemini_client():
         )
 
     return genai.Client(api_key=settings.llm_api_key)
+
+
+def generate_content_with_fallback(client, **kwargs):
+    """Try each Gemini model in order, falling back only on HTTP 503."""
+
+    last_error = None
+
+    for model in GEMINI_MODELS:
+        try:
+            logger.info("Attempting Gemini model: %s", model)
+
+            response = client.models.generate_content(
+                model=model,
+                **kwargs,
+            )
+
+            logger.info("Gemini model succeeded: %s", model)
+            return response
+
+        except errors.APIError as exc:
+            if exc.code != 503:
+                raise
+
+            last_error = exc
+            logger.warning(
+                "Gemini model %s is busy. Trying next available model.",
+                model,
+            )
+
+    raise LLMServiceError(
+        "All AI models are currently busy. Please try again shortly.",
+        retry=True,
+    ) from last_error
 
 
 def build_itinerary_prompt(trip: TripPlanRequest) -> str:
@@ -192,8 +230,8 @@ def generate_itinerary(trip: TripPlanRequest, use_cache: bool = True) -> Itinera
         start_time = time.perf_counter()
 
         try:
-            response = client.models.generate_content(
-                model=GEMINI_MODEL,
+            response = generate_content_with_fallback(
+                client,
                 contents=prompt,
                 config={
                     "response_mime_type": "application/json",
