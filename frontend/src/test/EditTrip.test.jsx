@@ -93,7 +93,6 @@ describe('Edit Trip page', () => {
   // TEST 2: Successfully update a trip
   it('updates the trip and redirects to the itinerary', async () => {
     const user = userEvent.setup();
-    
     vi.spyOn(window, 'confirm').mockReturnValue(true);
 
     api.put.mockResolvedValue({
