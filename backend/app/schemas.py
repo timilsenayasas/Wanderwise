@@ -461,7 +461,9 @@ class LodgingPinOut(BaseModel):
 
     stay_number: int
     city: str
-    part: int | None = None  # a split stay's part, so its pins can be told apart
+    part: int | None = None
     parts: int | None = None
     latitude: float
     longitude: float
+    check_in: date
+    check_out: date

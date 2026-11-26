@@ -378,6 +378,8 @@ def hotel_pins(trip: Trip, db: Session) -> list[LodgingPinOut]:
                     parts=stay.parts,
                     latitude=row.latitude,
                     longitude=row.longitude,
+                    check_in=stay.check_in,
+                    check_out=stay.check_out,
                 )
             )
     return pins

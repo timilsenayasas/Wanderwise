@@ -27,6 +27,10 @@ export function fakeMap() {
           this.points.push(point);
         }
       },
+      Polyline: vi.fn(function (options) {
+        this.options = options;
+        this.setMap = vi.fn();
+      }),
     },
   };
   googleMaps.map = map;

@@ -1,5 +1,7 @@
 .trip-map {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  min-width: 0;
   gap: var(--space-5);
 }
 
@@ -198,4 +200,56 @@
 .trip-map__dev-hint {
   color: var(--color-text-muted);
   font-size: var(--text-sm);
+}
+
+/* Day filter */
+.trip-map__day-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+.trip-map__day-filter label {
+  font-weight: 600;
+}
+
+.trip-map__day-filter select {
+  min-height: 44px;
+  max-width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface);
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Prevent horizontal overflow on narrow screens. */
+.trip-map__stops {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.trip-map__stops > li,
+.trip-map__stop,
+.trip-map__map,
+.trip-map__unavailable {
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
+}
+
+.trip-map__stop-text {
+  flex: 1;
+  min-width: 0;
+}
+
+.trip-map__stop-when,
+.trip-map__unavailable p {
+  overflow-wrap: anywhere;
+}
+
+.trip-map__stop {
+  white-space: normal;
 }
