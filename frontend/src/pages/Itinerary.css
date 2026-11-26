@@ -90,3 +90,77 @@
   color: var(--color-error);
   font-weight: 500;
 }
+
+.trip-page__plan-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+}
+
+@media print {
+  @page {
+    margin: 0.6in;
+  }
+
+  html,
+  body {
+    background: #ffffff !important;
+    color: #111111 !important;
+  }
+
+  body {
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* Hide navigation and interactive controls */
+  .navbar,
+  .trip-page__actions,
+  .trip-page__plan-actions,
+  .trip-page__plan-cta,
+  .trip-page__confirm,
+  [role="tablist"],
+  button {
+    display: none !important;
+  }
+
+  /* Use a clean, readable print layout */
+  .trip-page {
+    display: block;
+    color: #111111 !important;
+    background: #ffffff !important;
+  }
+
+  .trip-page * {
+    color: #111111 !important;
+    box-shadow: none !important;
+  }
+
+  .trip-page__sections,
+  .trip-page__plan {
+    display: block;
+  }
+
+  /* Keep each day and its activities together */
+  .itinerary__days > li {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  .itinerary__day-title {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  .itinerary__activities > li {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  /* Make cards printer-friendly */
+  .trip-page .card {
+    background: #ffffff !important;
+    border: 1px solid #dddddd !important;
+  }
+}
