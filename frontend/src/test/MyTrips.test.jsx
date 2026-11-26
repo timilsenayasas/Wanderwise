@@ -108,6 +108,89 @@ describe('MyTrips', () => {
     ).toBeInTheDocument();
   });
 
+  it('shows an error when loading trips fails', async () => {
+    api.get.mockRejectedValue(new Error('Network unavailable'));
+
+    renderPage();
+
+    expect(
+      await screen.findByRole('alert'),
+    ).toHaveTextContent('Network unavailable');
+
+    expect(
+      screen.getByRole('button', { name: 'Try again' }),
+    ).toBeEnabled();
+  });
+
+  it('loads trips successfully after retrying', async () => {
+    api.get
+      .mockRejectedValueOnce(new Error('Connection failed'))
+      .mockResolvedValueOnce([TRIP]);
+
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(
+      await screen.findByRole('alert'),
+    ).toHaveTextContent('Connection failed');
+
+    await user.click(
+      screen.getByRole('button', { name: 'Try again' }),
+    );
+
+    expect(
+      await screen.findByRole('heading', { name: 'New York, NY' }),
+    ).toBeInTheDocument();
+
+    expect(api.get).toHaveBeenCalledTimes(2);
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  });
+
+  it('prevents duplicate requests while retrying', async () => {
+    let finishRetry;
+
+    api.get
+      .mockRejectedValueOnce(new Error('Connection failed'))
+      .mockImplementationOnce(
+        () =>
+          new Promise((resolve) => {
+            finishRetry = resolve;
+          }),
+      );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    expect(
+      await screen.findByRole('alert'),
+    ).toHaveTextContent('Connection failed');
+
+    await user.click(
+      screen.getByRole('button', { name: 'Try again' }),
+    );
+
+    expect(
+      screen.getByRole('button', { name: /retrying/i }),
+    ).toBeDisabled();
+
+    expect(api.get).toHaveBeenCalledTimes(2);
+
+    // The error remains visible while retrying.
+    expect(screen.getByRole('alert')).toHaveTextContent(
+      'Connection failed',
+    );
+
+    finishRetry([TRIP]);
+
+    expect(
+      await screen.findByRole('heading', { name: 'New York, NY' }),
+    ).toBeInTheDocument();
+
+    await waitFor(() => {
+      expect(api.get).toHaveBeenCalledTimes(2);
+    });
+  });
+
   it('prevents overlapping trip deletions', async () => {
     const secondTrip = {
       ...TRIP,
@@ -138,34 +221,29 @@ describe('MyTrips', () => {
       name: 'Delete',
     });
 
-    // Open confirmation for the first trip.
     await user.click(deleteButtons[0]);
 
     const confirmButtons = screen.getAllByRole('button', {
       name: 'Delete',
     });
 
-    // Confirm deletion of the first trip.
     await user.click(confirmButtons[0]);
 
     expect(api.delete).toHaveBeenCalledTimes(1);
     expect(api.delete).toHaveBeenCalledWith('/trips/7');
 
-    // Active deletion button must be disabled.
     expect(
       screen.getByRole('button', {
         name: /deleting/i,
       }),
     ).toBeDisabled();
 
-    // Other trips cannot be deleted simultaneously.
     expect(
       screen.getByRole('button', {
         name: 'Delete',
       }),
     ).toBeDisabled();
 
-    // Complete the pending deletion.
     finishDelete(null);
 
     await waitFor(() => {
@@ -178,7 +256,6 @@ describe('MyTrips', () => {
 
     expect(api.delete).toHaveBeenCalledTimes(1);
 
-    // Deletion is available again.
     expect(
       screen.getByRole('button', {
         name: 'Delete',
@@ -199,22 +276,18 @@ describe('MyTrips', () => {
 
     renderPage();
 
-    // Verify that loading placeholders appear.
     expect(
       screen.getByRole('status', { name: 'Loading your trips' }),
     ).toBeInTheDocument();
 
     expect(document.querySelectorAll('.skeleton')).toHaveLength(18);
 
-    // Simulate receiving trip data from the backend.
     finishLoading([TRIP]);
 
-    // Verify the actual trip appears.
     expect(
       await screen.findByRole('heading', { name: 'New York, NY' }),
     ).toBeInTheDocument();
 
-    // Verify loading placeholders disappear.
     expect(document.querySelectorAll('.skeleton')).toHaveLength(0);
   });
 });

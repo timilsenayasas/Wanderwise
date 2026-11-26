@@ -126,14 +126,23 @@ export default function NewTrip() {
       navigate(`/trips/${tripId}`, { state: { generate: true } });
     } catch (error) {
       console.error('Failed to create trip:', error);
-      toast.error('Unable to save trip. Please try again.');
+
+      const serverMessage =
+      error.response?.data?.detail ||
+      error.response?.data?.message ||
+      error.response?.data?.error ||
+      error.message ||
+      'Unable to save trip. Please try again.';
+
+    setErrors({ form: serverMessage });
+    toast.error(serverMessage);
     } finally {
       setSubmitting(false);
     }
   }
 
   return (
-    <main className="page">
+    <main className="page container">
       <section className="page__header new-trip__header">
         <p className="eyebrow">Plan your next adventure</p>
 
@@ -204,6 +213,7 @@ export default function NewTrip() {
               onChange={handleChange}
               error={errors.travelers}
               min="1"
+              max="20"
               step="1"
               required
             />

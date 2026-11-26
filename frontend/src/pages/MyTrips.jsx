@@ -59,7 +59,6 @@ export function TripCard({
           {tags.map((interest) => (
             <li key={interest}>{interest}</li>
           ))}
-
           {hiddenTags > 0 && (
             <li className="trip-card__more">+{hiddenTags} more</li>
           )}
@@ -73,7 +72,6 @@ export function TripCard({
               <span className="trip-card__confirm">
                 Delete this trip?
               </span>
-
               <Button
                 size="sm"
                 variant="ghost"
@@ -82,7 +80,6 @@ export function TripCard({
               >
                 Cancel
               </Button>
-
               <Button
                 size="sm"
                 variant="accent"
@@ -103,7 +100,6 @@ export function TripCard({
               >
                 Open
               </Button>
-
               <Button
                 size="sm"
                 variant="ghost"
@@ -149,20 +145,38 @@ export default function MyTrips() {
   const [status, setStatus] = useState('loading');
   const [error, setError] = useState('');
   const [deletingId, setDeletingId] = useState(null);
+  const [retrying, setRetrying] = useState(false);
+
+  // Prevent overlapping retry requests.
+  const retryInProgress = useRef(false);
 
   // Prevent overlapping delete requests.
   const deletionInProgress = useRef(false);
 
-  async function loadTrips() {
-    setStatus('loading');
-    setError('');
+  async function loadTrips(isRetry = false) {
+    if (isRetry) {
+      if (retryInProgress.current) return;
+
+      retryInProgress.current = true;
+      setRetrying(true);
+    } else {
+      setStatus('loading');
+      setError('');
+    }
 
     try {
-      setTrips(await api.get('/trips'));
+      const savedTrips = await api.get('/trips');
+      setTrips(savedTrips);
+      setError('');
       setStatus('ready');
     } catch (err) {
       setError(err.message || 'Could not load your trips.');
       setStatus('error');
+    } finally {
+      if (isRetry) {
+        retryInProgress.current = false;
+        setRetrying(false);
+      }
     }
   }
 
@@ -235,7 +249,13 @@ export default function MyTrips() {
             {error}
           </p>
 
-          <Button variant="secondary" onClick={loadTrips}>
+          <Button
+            variant="secondary"
+            onClick={() => loadTrips(true)}
+            disabled={retrying}
+            loading={retrying}
+            loadingText="Retrying…"
+          >
             Try again
           </Button>
         </Card>
