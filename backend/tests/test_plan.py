@@ -563,3 +563,96 @@ def test_duplicate_itinerary_succeeds_after_retry(client, monkeypatch):
     assert len(prompts) == 2
     assert "Art Institute" in prompts[1]
     assert plan_row_counts() == (2, 4, 2)
+
+# --- R7: Regenerate a plan to compare -------------------------------------
+
+def test_alternative_does_not_replace_original(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+
+    original = client.post(f"/api/trips/{trip_id}/plan").json()
+
+    response = client.post(f"/api/trips/{trip_id}/plan/alternative")
+
+    assert response.status_code == 200
+    assert response.json()["itinerary"]["days"][0]["activities"][0]["name"] == "Field Museum"
+
+    # Original itinerary remains unchanged.
+    assert client.get(f"/api/trips/{trip_id}/plan").json() == original
+    assert plan_row_counts() == (2, 4, 2)
+
+
+def test_alternative_requires_existing_plan(client):
+    register(client)
+    trip_id = create_trip(client)
+
+    response = client.post(f"/api/trips/{trip_id}/plan/alternative")
+
+    assert response.status_code == 404
+    assert plan_row_counts() == (0, 0, 0)
+
+
+def test_alternative_requires_authentication(client):
+    response = client.post("/api/trips/1/plan/alternative")
+
+    assert response.status_code == 401
+
+def test_accept_alternative_replaces_original(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+
+    original = client.post(f"/api/trips/{trip_id}/plan").json()
+    alternative = client.post(
+        f"/api/trips/{trip_id}/plan/alternative"
+    ).json()
+
+    # Original remains saved until acceptance.
+    assert client.get(f"/api/trips/{trip_id}/plan").json() == original
+
+    response = client.post(
+        f"/api/trips/{trip_id}/plan/alternative/{alternative['id']}/accept"
+    )
+
+    assert response.status_code == 200
+    assert response.json()["days"][0]["activities"][0]["name"] == "Field Museum"
+    assert client.get(f"/api/trips/{trip_id}/plan/alternative").json() is None
+
+
+def test_reject_alternative_keeps_original(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+
+    original = client.post(f"/api/trips/{trip_id}/plan").json()
+    alternative = client.post(
+        f"/api/trips/{trip_id}/plan/alternative"
+    ).json()
+
+    response = client.delete(
+        f"/api/trips/{trip_id}/plan/alternative/{alternative['id']}"
+    )
+
+    assert response.status_code == 204
+    assert client.get(f"/api/trips/{trip_id}/plan").json() == original
+    assert client.get(f"/api/trips/{trip_id}/plan/alternative").json() is None
+
+def test_alternative_can_be_retrieved(client, monkeypatch):
+    use_fake_gemini(monkeypatch, FIRST_PLAN, SECOND_PLAN)
+    register(client)
+    trip_id = create_trip(client)
+
+    client.post(f"/api/trips/{trip_id}/plan")
+
+    generated = client.post(
+        f"/api/trips/{trip_id}/plan/alternative"
+    ).json()
+
+    retrieved = client.get(
+        f"/api/trips/{trip_id}/plan/alternative"
+    )
+
+    assert retrieved.status_code == 200
+    assert retrieved.json() == generated
+    assert retrieved.json()["itinerary"]["days"][0]["activities"][0]["name"] == "Field Museum"

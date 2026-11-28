@@ -400,6 +400,30 @@ class TripHotelEstimate(Base):
         nullable=False,
     )
 
+class PlanAlternative(Base):
+    """R7: A generated alternative awaiting the traveler's decision."""
+
+    __tablename__ = "plan_alternatives"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+
+    trip_id: Mapped[int] = mapped_column(
+        ForeignKey("trips.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    itinerary: Mapped[dict] = mapped_column(
+        sa.JSON().with_variant(JSONB(), "postgresql"),
+        nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
 class DestinationPhoto(Base):
     """B3: Cached Pexels destination photo, shared across trips."""
 
