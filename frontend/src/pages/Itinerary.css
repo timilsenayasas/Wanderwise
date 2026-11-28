@@ -90,3 +90,93 @@
   color: var(--color-error);
   font-weight: 500;
 }
+/* A15 - Plan comparison dark mode */
+:root[data-theme="dark"] .trip-page__plan h2,
+:root[data-theme="dark"] .trip-page__confirm h3,
+:root[data-theme="dark"] .trip-page__confirm h4 {
+  color: var(--color-text);
+}
+/* A15 - Dark mode comparison buttons */
+:root[data-theme="dark"] .trip-page__plan .btn--secondary {
+  color: var(--color-text);
+  border-color: var(--color-border-strong);
+}
+
+:root[data-theme="dark"] .trip-page__plan .btn--secondary:hover:not(:disabled) {
+  background: var(--color-primary-soft);
+  color: var(--color-text);
+}
+/* A15 - Responsive itinerary comparison */
+.trip-page__comparison-switch {
+  display: none;
+}
+
+.trip-page__comparison-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+  align-items: start;
+  min-width: 0;
+}
+
+.trip-page__comparison-card {
+  min-width: 0;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  overflow-wrap: anywhere;
+}
+
+/* Mobile comparison */
+@media (max-width: 600px) {
+  .trip-page__comparison-switch {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+  }
+
+  .trip-page__comparison-switch .btn {
+    flex: 1;
+    white-space: normal;
+  }
+
+  .trip-page__comparison-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .trip-page__comparison-card {
+    display: none;
+  }
+
+  .trip-page__comparison-card--active {
+    display: block;
+  }
+
+  .trip-page__confirm {
+    min-width: 0;
+    padding: var(--space-3);
+  }
+}
+/* A15 - Prevent mobile grid overflow */
+@media (max-width: 600px) {
+  .trip-page,
+  .trip-page__sections,
+  .trip-page__plan,
+  .trip-page__confirm {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+
+  .trip-page .tabs__panel {
+    min-width: 0;
+  }
+
+  .trip-page .tabs {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+
+  .trip-page__comparison-card ul {
+    padding-left: 1.25rem;
+  }
+}

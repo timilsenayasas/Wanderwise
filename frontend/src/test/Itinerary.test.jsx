@@ -79,6 +79,7 @@ function mockLoad(
   names = [],
 ) {
   api.get.mockImplementation((path) => {
+    if (path.endsWith('/plan/alternative')) return Promise.resolve(null);
     if (path.endsWith('/plan')) return Promise.resolve(plan);
     if (path.endsWith('/budget')) return Promise.resolve(budget);
     if (path.endsWith('/lodging')) return Promise.resolve(lodging.overview);
@@ -142,6 +143,7 @@ describe('Trip page skeleton loading', () => {
     let finishPlan;
 
     api.get.mockImplementation((path) => {
+      if (path.endsWith('/plan/alternative')) return Promise.resolve(null);
       if (path.endsWith('/plan')) {
         return new Promise((resolve) => {
           finishPlan = resolve;
@@ -180,7 +182,7 @@ describe('Trip page plan', () => {
     expect(await screen.findByText('Art Institute of Chicago')).toBeInTheDocument();
     expect(api.get).toHaveBeenCalledWith('/trips/7/plan');
     expect(screen.queryByRole('button', { name: /generate ai itinerary/i })).not.toBeInTheDocument();
-    expect(screen.getByRole('button', { name: /regenerate/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /generate alternative/i })).toBeInTheDocument();
     expect(api.post).not.toHaveBeenCalled();
   });
 
@@ -196,28 +198,111 @@ describe('Trip page plan', () => {
     expect(screen.queryByRole('button', { name: /generate ai itinerary/i })).not.toBeInTheDocument();
   });
 
-  it('asks before regenerating and replaces the plan only when confirmed', async () => {
+    it('generates an alternative without replacing the original plan', async () => {
     mockLoad(savedPlan('Art Institute of Chicago'));
-    api.post.mockResolvedValue(savedPlan('Field Museum'));
+
+    api.post.mockResolvedValue({
+      id: 1,
+      itinerary: savedPlan('Field Museum'),
+    });
+
     renderTrip();
 
-    const regenerate = await screen.findByRole('button', { name: /regenerate/i });
-    await userEvent.click(regenerate);
-    expect(screen.getByText(/replaces your current plan/i)).toBeInTheDocument();
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /generate alternative/i,
+      }),
+    );
 
-    await userEvent.click(screen.getByRole('button', { name: /cancel/i }));
-    expect(screen.queryByText(/replaces your current plan/i)).not.toBeInTheDocument();
-    expect(regenerate).toHaveFocus();
-    expect(api.post).not.toHaveBeenCalled();
+    expect(api.post).toHaveBeenCalledWith('/trips/7/plan/alternative');
 
-    await userEvent.click(regenerate);
-    await userEvent.click(screen.getByRole('button', { name: /replace my plan/i }));
+    expect(await screen.findByText(/Field Museum/i)).toBeInTheDocument();
+    expect(screen.getAllByText('Art Institute of Chicago').length).toBeGreaterThan(0);
 
-    expect(await screen.findByText('Field Museum')).toBeInTheDocument();
-    expect(screen.queryByText('Art Institute of Chicago')).not.toBeInTheDocument();
-    expect(api.post).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', {
+      name: /keep original/i,
+    })).toBeInTheDocument();
+
+    expect(screen.getByRole('button', {
+      name: /use alternative/i,
+    })).toBeInTheDocument();
   });
 
+    it('accepts the alternative and replaces the original plan', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+
+    api.post
+      .mockResolvedValueOnce({
+        id: 1,
+        itinerary: savedPlan('Field Museum'),
+      })
+      .mockResolvedValueOnce(savedPlan('Field Museum'));
+
+    renderTrip();
+
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /generate alternative/i,
+      }),
+    );
+
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /use alternative/i,
+      }),
+    );
+
+    expect(api.post).toHaveBeenCalledWith(
+      '/trips/7/plan/alternative/1/accept',
+    );
+
+    expect(await screen.findByText('Field Museum')).toBeInTheDocument();
+
+    expect(screen.queryByText(/Art Institute of Chicago/i))
+      .not.toBeInTheDocument();
+
+    expect(screen.queryByText('Compare your itineraries'))
+      .not.toBeInTheDocument();
+  });
+    it('keeps the original plan when the alternative is rejected', async () => {
+    mockLoad(savedPlan('Art Institute of Chicago'));
+
+    api.post.mockResolvedValue({
+      id: 1,
+      itinerary: savedPlan('Field Museum'),
+    });
+
+    api.delete.mockResolvedValue(undefined);
+
+    renderTrip();
+
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /generate alternative/i,
+      }),
+    );
+
+    await userEvent.click(
+      await screen.findByRole('button', {
+        name: /keep original/i,
+      }),
+    );
+
+    expect(api.delete).toHaveBeenCalledWith(
+      '/trips/7/plan/alternative/1',
+    );
+
+    await waitFor(() => {
+      expect(screen.queryByText(/Field Museum/i))
+        .not.toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Art Institute of Chicago'))
+      .toBeInTheDocument();
+
+    expect(screen.queryByText('Compare your itineraries'))
+      .not.toBeInTheDocument();
+  });
   it('starts generating straight away when arriving from New Trip', async () => {
     mockLoad(null);
     api.post.mockResolvedValue(savedPlan('Art Institute of Chicago'));
@@ -494,7 +579,7 @@ describe('Trip page tabs', () => {
 
     await userEvent.click(screen.getByRole('tab', { name: 'Itinerary' }));
     expect(screen.getByText('Art Institute of Chicago')).toBeVisible();
-    expect(screen.getByRole('button', { name: /regenerate/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /generate alternative/i })).toBeInTheDocument();
   });
 
   it('ignores an unknown ?tab= and opens the Itinerary tab', async () => {

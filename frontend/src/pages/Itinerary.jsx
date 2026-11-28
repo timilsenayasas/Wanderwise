@@ -51,7 +51,10 @@ export default function Itinerary() {
   const [plan, setPlan] = useState(null);
   const [planning, setPlanning] = useState(false);
   const [planError, setPlanError] = useState('');
-  const [confirming, setConfirming] = useState(false);
+  const [alternative, setAlternative] = useState(null);
+  const [alternativeBusy, setAlternativeBusy] = useState(false);
+  const [alternativeError, setAlternativeError] = useState('');
+  const [comparisonView, setComparisonView] = useState('original');
   // Stay searches Google (billed), so it mounts on first open and then stays, hidden, until the page closes.
   const [stayOpened, setStayOpened] = useState(tab === 'stay');
   if (tab === 'stay' && !stayOpened) setStayOpened(true);
@@ -66,8 +69,8 @@ export default function Itinerary() {
   // Google's hotel names (place_id -> name) for this page visit only: in memory, never in
   // localStorage or sessionStorage (Google's terms), gone on reload. The Stay tab fills it for free.
   const hotelNames = useRef(new Map());
-  const pendingNames = useRef(new Set()); // place IDs being looked up right now
-  const [, setNamesVersion] = useState(0); // re-render when names arrive
+  const pendingNames = useRef(new Set());
+  const [, setNamesVersion] = useState(0);
   const rememberHotelNames = useCallback((hotels) => {
     let added = false;
     for (const { place_id: placeId, name } of hotels) {
@@ -79,9 +82,6 @@ export default function Itinerary() {
     if (added) setNamesVersion((version) => version + 1);
   }, []);
 
-  // Both asked again each time the Itinerary shows a plan, so a change just made on the Stay or
-  // Budget tab shows up. Neither calls Google. They're extra detail: if one fails, the days just
-  // don't say where you sleep, or the total is the plan's own.
   const showingPlan = status === 'ready' && tab === 'itinerary' && Boolean(plan);
   useEffect(() => {
     if (!showingPlan) return undefined;
@@ -107,8 +107,6 @@ export default function Itinerary() {
     };
   }, [showingPlan, plan, tripId]);
 
-  // Names of picked hotels this visit doesn't have yet: one name-only lookup each (billed), never repeated
-  // while it's known. A failed one just leaves "your hotel in Kathmandu", and is tried on the next visit here.
   useEffect(() => {
     if (!showingPlan || !lodging) return undefined;
     const missing = lodging.stays
@@ -126,18 +124,16 @@ export default function Itinerary() {
       .then((names) => {
         if (!cancelled) rememberHotelNames(names);
       })
-      .catch(() => {}) // the days say "your hotel in …" instead
+      .catch(() => {})
       .finally(() => {
         if (!cancelled) release();
       });
     return () => {
-      // StrictMode (development) cleans up and runs effects again: let that run ask afresh.
       cancelled = true;
       release();
     };
   }, [showingPlan, lodging, tripId, rememberHotelNames]);
 
-  // "I'm travelling this night" (true/false), or null to go back to the plan's say.
   async function setNight(date, inTransit) {
     const path = `/trips/${tripId}/nights/${date}`;
     setLodging(inTransit === null ? await api.delete(path) : await api.put(path, { in_transit: inTransit }));
@@ -149,17 +145,20 @@ export default function Itinerary() {
 
     setStatus('loading');
     setPlan(null);
-    setConfirming(false);
+    setAlternative(null);
+    setAlternativeError('');
 
     Promise.all([
       api.get(`/trips/${tripId}`),
       api.get(`/trips/${tripId}/plan`),
+      api.get(`/trips/${tripId}/plan/alternative`),
     ])
-      .then(([tripData, savedPlan]) => {
+      .then(([tripData, savedPlan, pendingAlternative]) => {
         if (cancelled) return;
 
         setTrip(tripData);
         setPlan(savedPlan);
+        setAlternative(pendingAlternative);
         setStatus('ready');
       })
       .catch((err) => {
@@ -172,8 +171,7 @@ export default function Itinerary() {
           setStatus('error');
         }
       });
-
-    return () => {
+          return () => {
       cancelled = true;
     };
   }, [tripId]);
@@ -192,10 +190,10 @@ export default function Itinerary() {
   async function generatePlan() {
     setPlanning(true);
     setPlanError('');
-    setConfirming(false);
 
     try {
       setPlan(await api.post(`/trips/${tripId}/plan`));
+      setAlternative(null);
     } catch (err) {
       setPlanError(
         err.message || 'Could not generate a plan. Please try again.',
@@ -248,9 +246,46 @@ export default function Itinerary() {
 
   const showItinerary = () => showTab('itinerary');
 
-  function cancelRegenerate() {
-    setConfirming(false);
-    regenerateRef.current?.focus();
+  async function generateAlternative() {
+    setAlternativeBusy(true);
+    setAlternativeError('');
+    try {
+      const result = await api.post(`/trips/${tripId}/plan/alternative`);
+      setAlternative(result);
+    } catch (err) {
+      setAlternativeError(err.message || 'Could not generate an alternative.');
+    } finally {
+      setAlternativeBusy(false);
+    }
+  }
+
+  async function acceptAlternative() {
+    if (!alternative) return;
+    setAlternativeBusy(true);
+    setAlternativeError('');
+    try {
+      const saved = await api.post(`/trips/${tripId}/plan/alternative/${alternative.id}/accept`);
+      setPlan(saved);
+      setAlternative(null);
+    } catch (err) {
+      setAlternativeError(err.message || 'Could not save the alternative.');
+    } finally {
+      setAlternativeBusy(false);
+    }
+  }
+
+  async function rejectAlternative() {
+    if (!alternative) return;
+    setAlternativeBusy(true);
+    setAlternativeError('');
+    try {
+      await api.delete(`/trips/${tripId}/plan/alternative/${alternative.id}`);
+      setAlternative(null);
+    } catch (err) {
+      setAlternativeError(err.message || 'Could not discard the alternative.');
+    } finally {
+      setAlternativeBusy(false);
+    }
   }
 
   // B2: Skeleton loading screen for trip details and itinerary.
@@ -295,7 +330,7 @@ export default function Itinerary() {
             </Card>
           ))}
         </div>
-      </div>
+              </div>
     );
   }
 
@@ -454,63 +489,120 @@ export default function Itinerary() {
               aria-labelledby="plan-title"
             >
               <div className="trip-page__plan-bar">
-                <h2 id="plan-title">
-                  Day-by-day plan
-                </h2>
-
+                <h2 id="plan-title">Day-by-day plan</h2>
                 <Button
                   ref={regenerateRef}
                   variant="secondary"
                   size="sm"
-                  onClick={() =>
-                    setConfirming((open) => !open)
-                  }
-                  loading={planning}
-                  loadingText="Regenerating…"
-                  aria-expanded={confirming}
-                  aria-controls="regenerate-confirm"
+                  onClick={generateAlternative}
+                  loading={alternativeBusy}
+                  loadingText="Generating alternative…"
+                  disabled={alternativeBusy}
                 >
-                  Regenerate
+                  {alternative ? 'Try another alternative' : 'Generate alternative'}
                 </Button>
               </div>
 
-              {confirming && (
-                <Card
-                  id="regenerate-confirm"
-                  padding="md"
-                  className="trip-page__confirm"
-                >
-                  <p>
-                    This replaces your current plan with
-                    a new one. The current plan can&apos;t
-                    be brought back.
+              {alternativeError && (
+                <p className="trip-page__alert" role="alert">{alternativeError}</p>
+              )}
+
+              {alternative && (
+                <Card padding="lg" className="trip-page__confirm">
+                  <h3>Compare your itineraries</h3>
+                                    <p className="text-muted">
+                    Your original plan is still saved. Review both options before choosing.
                   </p>
 
-                  <div className="trip-page__actions">
+                  <div className="trip-page__comparison-switch">
                     <Button
-                      variant="accent"
+                      variant={comparisonView === 'original' ? 'primary' : 'secondary'}
                       size="sm"
-                      onClick={generatePlan}
+                      onClick={() => setComparisonView('original')}
+                      aria-pressed={comparisonView === 'original'}
                     >
-                      Replace my plan
+                      Original plan
+                    </Button>
+                    <Button
+                      variant={comparisonView === 'alternative' ? 'primary' : 'secondary'}
+                      size="sm"
+                      onClick={() => setComparisonView('alternative')}
+                      aria-pressed={comparisonView === 'alternative'}
+                    >
+                      Alternative plan
+                    </Button>
+                  </div>
+
+                  <div className="trip-page__comparison-grid">
+                    {[
+                      { label: 'Original plan', itinerary: plan },
+                      { label: 'Alternative plan', itinerary: alternative.itinerary },
+                    ].map(({ label, itinerary }) => (
+                      <div
+                        key={label}
+                        className={`trip-page__comparison-card ${comparisonView === (label === 'Original plan' ? 'original' : 'alternative') ? 'trip-page__comparison-card--active' : ''}`}
+                      >
+                        <h4>{label}</h4>
+                        <p>
+                          <strong>Estimated plan cost: </strong>
+                          {new Intl.NumberFormat('en-US', {
+                            style: 'currency',
+                            currency: itinerary.currency || 'USD',
+                          }).format(itinerary.total_estimated_cost ?? 0)}
+                        </p>
+
+                        {itinerary.days.map((day, index) => (
+                          <div
+                            key={`${day.date}-${index}`}
+                            style={{ marginTop: '1rem' }}
+                          >
+                            <strong>Day {index + 1} — {day.date}</strong>
+                            <ul>
+                              {day.activities.map((activity, activityIndex) => (
+                                <li key={`${activity.name}-${activityIndex}`}>
+                                  {activity.start_time} — {activity.name}
+                                  {activity.location ? ` (${activity.location})` : ''}
+                                  {' — '}
+                                  {new Intl.NumberFormat('en-US', {
+                                    style: 'currency',
+                                    currency: itinerary.currency || 'USD',
+                                  }).format(activity.estimated_cost ?? 0)}
+                                </li>
+                              ))}
+                            </ul>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+
+                  <div
+                    className="trip-page__actions"
+                    style={{ marginTop: '1rem' }}
+                  >
+                    <Button
+                      variant="secondary"
+                      size="sm"
+                      onClick={rejectAlternative}
+                      disabled={alternativeBusy}
+                    >
+                      Keep Original
                     </Button>
 
                     <Button
-                      variant="ghost"
+                      variant="accent"
                       size="sm"
-                      onClick={cancelRegenerate}
+                      onClick={acceptAlternative}
+                      disabled={alternativeBusy}
                     >
-                      Cancel
+                      Use Alternative
                     </Button>
                   </div>
                 </Card>
               )}
 
               {planError && (
-                <p
-                  className="trip-page__alert"
-                  role="alert"
-                >
+                <p className="trip-page__alert" role="alert">
                   {planError}
                 </p>
               )}
@@ -536,9 +628,12 @@ export default function Itinerary() {
         </TabPanel>
 
         <TabPanel idPrefix="trip" id="budget" selected={tab}>
-          {/* Mounted only while open, so opening the tab always loads fresh totals. */}
           {tab === 'budget' && (
-            <BudgetTab trip={trip} onShowItinerary={showItinerary} onShowStay={() => showTab('stay')} />
+            <BudgetTab
+              trip={trip}
+              onShowItinerary={showItinerary}
+              onShowStay={() => showTab('stay')}
+            />
           )}
         </TabPanel>
 
@@ -547,11 +642,16 @@ export default function Itinerary() {
             <ErrorBoundary
               fallback={
                 <Card padding="lg">
-                  <p role="status">Hotel suggestions can&apos;t load right now. The rest of your trip still works.</p>
+                  <p role="status">
+                    Hotel suggestions can&apos;t load right now.
+                    The rest of your trip still works.
+                  </p>
                 </Card>
               }
             >
-              <Suspense fallback={<Spinner size="lg" label="Loading where to stay" />}>
+              <Suspense
+                fallback={<Spinner size="lg" label="Loading where to stay" />}
+              >
                 <WhereToStay
                   key={trip.id}
                   trip={trip}
@@ -564,11 +664,7 @@ export default function Itinerary() {
           )}
         </TabPanel>
 
-        <TabPanel
-          idPrefix="trip"
-          id="map"
-          selected={tab}
-        >
+        <TabPanel idPrefix="trip" id="map" selected={tab}>
           {tab === 'map' && (
             <ErrorBoundary
               fallback={
@@ -580,8 +676,14 @@ export default function Itinerary() {
                 </Card>
               }
             >
-              <Suspense fallback={<Spinner size="lg" label="Loading the map" />}>
-                <TripMap plan={plan} tripId={trip.id} onShowItinerary={showItinerary} />
+              <Suspense
+                fallback={<Spinner size="lg" label="Loading the map" />}
+              >
+                <TripMap
+                  plan={plan}
+                  tripId={trip.id}
+                  onShowItinerary={showItinerary}
+                />
               </Suspense>
             </ErrorBoundary>
           )}
