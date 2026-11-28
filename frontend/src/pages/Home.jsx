@@ -27,7 +27,6 @@ function actions(latestTrip) {
 /** Features still being built. Move one into actions() when it ships. */
 const UPCOMING = [
   { icon: 'chat', title: 'AI travel chat', text: 'Ask for changes in plain English.' },
-  { icon: 'sun', title: 'Weather', text: 'Forecasts for each day of your trip.' },
 ];
 
 function greeting() {

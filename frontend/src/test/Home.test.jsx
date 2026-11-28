@@ -87,7 +87,7 @@ describe('Home', () => {
 
     const soon = screen.getByRole('region', { name: 'Coming soon' });
     expect(within(soon).getByRole('heading', { name: 'AI travel chat' })).toBeInTheDocument();
-    expect(within(soon).getByRole('heading', { name: 'Weather' })).toBeInTheDocument();
+        expect(within(soon).queryByRole('heading', { name: 'Weather' })).not.toBeInTheDocument();
     expect(within(soon).queryByText(/budget/i)).not.toBeInTheDocument();
     expect(within(soon).queryByText(/map/i)).not.toBeInTheDocument();
     expect(within(soon).queryAllByRole('link')).toHaveLength(0);

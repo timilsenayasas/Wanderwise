@@ -145,6 +145,7 @@
   font-weight: 500;
   text-decoration: none;
   position: relative;
+  white-space: nowrap;
 }
 
 .navbar__link:hover {

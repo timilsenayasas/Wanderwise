@@ -272,7 +272,8 @@ describe('Trip page tabs', () => {
     mockLoad(savedPlan('Art Institute of Chicago')); // its plan alone is $32; the budget is $442.50
     renderTrip();
 
-    expect(await screen.findByText('plan $97 + lodging $300 + your other costs $45.50')).toBeInTheDocument();
+    expect(await screen.findByText('$442.50')).toBeInTheDocument();
+expect(screen.queryByText('plan $97 + lodging $300 + your other costs $45.50')).not.toBeInTheDocument();
     expect(screen.getByText('Estimated total').nextElementSibling).toHaveTextContent('$442.50');
     expect(api.get).toHaveBeenCalledWith('/trips/7/budget'); // the same numbers as the Budget tab
   });
