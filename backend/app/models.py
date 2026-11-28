@@ -412,10 +412,41 @@ class PlanAlternative(Base):
         nullable=False,
         index=True,
     )
-
     itinerary: Mapped[dict] = mapped_column(
         sa.JSON().with_variant(JSONB(), "postgresql"),
         nullable=False,
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        default=utcnow,
+        nullable=False,
+    )
+
+
+class DestinationPhoto(Base):
+    """B3: Cached Pexels destination photo, shared across trips."""
+
+    __tablename__ = "destination_photos"
+
+    id: Mapped[int] = mapped_column(
+        Integer, primary_key=True
+    )
+
+    destination: Mapped[str] = mapped_column(
+        String(120), unique=True, index=True, nullable=False
+    )
+
+    photo_url: Mapped[str] = mapped_column(
+        Text, nullable=False
+    )
+
+    photographer: Mapped[str] = mapped_column(
+        String(200), nullable=False
+    )
+
+    photographer_url: Mapped[str | None] = mapped_column(
+        Text, nullable=True
     )
 
     created_at: Mapped[datetime] = mapped_column(

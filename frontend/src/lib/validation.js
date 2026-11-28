@@ -88,11 +88,13 @@ export function validateTrip(values) {
     errors.endDate = 'End date must be on or after the start date';
   }
 
-  const travelers = Number(values.travelers);
+ const travelers = Number(values.travelers);
 
-  if (!values.travelers || !Number.isInteger(travelers) || travelers < 1) {
-    errors.travelers = 'Enter at least 1 traveler';
-  }
+if (!values.travelers || !Number.isInteger(travelers) || travelers < 1) {
+  errors.travelers = 'Enter at least 1 traveler';
+} else if (travelers > 20) {
+  errors.travelers = 'You can have a maximum of 20 travelers';
+}
 
   if (values.budget === '' || values.budget == null) {
     errors.budget = 'Enter a budget';

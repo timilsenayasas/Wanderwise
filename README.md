@@ -166,6 +166,46 @@ Good to know:
 - Plans saved before the server key was set have no map locations. Regenerate the plan to add them.
 - Tests never call Google: `backend/tests/conftest.py` clears `MAPS_API_KEY` and fails any test that reaches Geocoding or Places, and the frontend tests mock the map and the API.
 
+#### Destination photos (Pexels)
+
+The backend uses the Pexels API to retrieve destination photos. Photos are
+cached in the `destination_photos` database table so repeated requests for
+the same destination do not consume additional Pexels API requests.
+
+**Setup:**
+
+1. Create a Pexels API key at https://www.pexels.com/api/.
+2. Add the key to `backend/.env`:
+
+   ```env
+   PEXELS_API_KEY=your_key_here
+   ```
+
+3. Restart the backend.
+
+The key must remain on the backend. Never add it to the frontend or commit
+it to GitHub. `backend/.env.example` contains an empty placeholder.
+
+**Endpoint:**
+
+`GET /api/photos?query=Chicago`
+
+A successful response includes:
+
+- `photo_url`: URL of the destination image
+- `photographer`: Photographer's name
+- `photographer_url`: Link to the photographer's Pexels profile
+
+The endpoint returns null photo fields with HTTP 200 if the API key is
+missing, no photo is found, or Pexels is unavailable.
+
+**API availability:** Pexels has temporarily paused issuing new API keys.
+Until a key becomes available, the endpoint safely returns null photo fields.
+The backend integration is tested using mocked Pexels responses.
+
+**Testing:** Run `python -m pytest tests/test_photos.py -v` from `backend/`.
+Tests never make real Pexels API requests.
+
 #### Where to stay (Stay tab)
 
 A trip is split into **stays**: runs of nights in one base city. The AI plan gives every day a `base_city` (where the traveler sleeps), and consecutive nights in the same city make one stay, e.g. "Kathmandu · 2 nights" then "Chitwan · 2 nights". A trip without a plan, or with one city, has one stay and the tab looks like a single list. Stays are worked out from the plan each time and capped at 6, counting split ones (extra nights join the last one); only the choices are stored, matched to stays by number (`trip_lodging.stay_number`).
