@@ -220,13 +220,15 @@ describe("The Itinerary's total", () => {
     render(<ItineraryView itinerary={PLAN} budget={{ total: 1765.5, breakdown: { plan: 1240, lodging: 480, other: 45.5 } }} />);
 
     expect(total()).toHaveTextContent('$1,765.50');
-    expect(screen.getByText('plan $1,240 + lodging $480 + your other costs $45.50')).toBeInTheDocument();
+    expect(screen.queryByText('plan $1,240 + lodging $480 + your other costs $45.50')).not.toBeInTheDocument();
   });
 
   it('leaves out parts that are $0, but never the plan', () => {
     render(<ItineraryView itinerary={PLAN} budget={{ total: 0, breakdown: { plan: 0, lodging: 0, other: 0 } }} />);
 
-    expect(screen.getByText('plan $0')).toBeInTheDocument();
+    expect(total()).toHaveTextContent('$0');
+    expect(total()).toHaveTextContent('$0');
+    expect(screen.queryByText('plan $0')).not.toBeInTheDocument();
     expect(screen.queryByText(/lodging \$|other costs/)).toBeNull();
   });
 

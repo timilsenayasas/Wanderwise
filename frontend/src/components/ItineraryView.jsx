@@ -45,12 +45,7 @@ function formatDuration(minutes) {
 }
 
 /** "plan $1,240 + lodging $480 + your other costs $45.50", leaving out parts that are $0 (but never the plan). */
-function breakdownText({ plan, lodging, other }) {
-  const parts = [`plan ${formatCurrency(plan)}`];
-  if (lodging) parts.push(`lodging ${formatCurrency(lodging)}`);
-  if (other) parts.push(`your other costs ${formatCurrency(other)}`);
-  return parts.join(' + ');
-}
+
 
 export default function ItineraryView({ itinerary, tripId, budget, lodging, hotelNames, onShowStay, onSetNight }) {
   // Google requires attribution for Places content (here, hotel names) shown outside its map.
@@ -59,17 +54,14 @@ export default function ItineraryView({ itinerary, tripId, budget, lodging, hote
       (stay) => stay.choice?.choice === 'hotel' && !stay.plan_changed && hotelNames?.has(stay.choice.place_id),
     ),
   );
-  const { destination, currency, total_estimated_cost: total, days } = itinerary;
+  const { currency, total_estimated_cost: total, days } = itinerary;
   const firstDate = days[0]?.date;
   const lastDate = days.at(-1)?.date;
 
   return (
     <div className="itinerary">
       <Card tone="navy" padding="lg" className="itinerary__summary">
-        <div>
-          <span className="itinerary__label">Your trip to</span>
-          <h2 className="itinerary__destination">{destination}</h2>
-        </div>
+
         <dl className="itinerary__stats">
           <div>
             <dt>Days</dt>
@@ -80,11 +72,11 @@ export default function ItineraryView({ itinerary, tripId, budget, lodging, hote
             <dd>{budget ? formatCurrency(budget.total) : formatMoney(total, currency)}</dd>
           </div>
         </dl>
-        {budget ? (
-          <p className="itinerary__breakdown">{breakdownText(budget.breakdown)}</p>
-        ) : (
-          budget === null && <p className="itinerary__breakdown">Plan only: your other costs couldn&apos;t load.</p>
-        )}
+        {budget === null && (
+  <p className="itinerary__breakdown">
+    Plan only: your other costs couldn&apos;t load.
+  </p>
+)}
       </Card>
 
       <ol className="itinerary__days">

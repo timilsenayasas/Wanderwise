@@ -90,3 +90,22 @@
   color: var(--color-error);
   font-weight: 500;
 }
+/* F4 - Prevent horizontal overflow on mobile */
+@media (max-width: 600px) {
+  .trip-page,
+  .trip-page__sections,
+  .trip-page__plan,
+  .trip-page__confirm {
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
+  }
+
+  .trip-page .tabs__panel {
+    min-width: 0;
+  }
+
+  .trip-page .tabs {
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+}
